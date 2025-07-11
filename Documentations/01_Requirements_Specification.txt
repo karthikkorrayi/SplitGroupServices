@@ -1,0 +1,262 @@
+===============================================================================
+
+
+                          SPLIT GROUP MICROSERVICES PROJECT
+                         REQUIREMENTS SPECIFICATION DOCUMENT
+
+
+===============================================================================
+1. PROJECT OVERVIEW
+===============================================================================
+
+PURPOSE:
+--------
+    - Build a Splitwise-like application using microservices architecture
+    - Allow users to track shared expenses and split bills
+    - Manage balances and settlements between users
+    - Provide secure user authentication and profile management
+
+TARGET USERS:
+-------------
+    - Friends sharing expenses (dinners, trips, groceries)
+    - Roommates splitting rent and utilities
+    - Groups organizing events with shared costs
+    - Anyone tracking "who owes what to whom"
+
+BUSINESS GOALS:
+---------------
+    - Eliminate manual expense tracking and calculations
+    - Reduce conflicts over money in groups
+    - Provide transparent and accurate financial records
+    - Learn modern microservices architecture patterns
+
+
+===============================================================================
+2. FUNCTIONAL REQUIREMENTS
+===============================================================================
+
+2.1 USER MANAGEMENT
+-------------------
+
+FR-001: User Registration
+    - Register with email, password, and name
+    - Email format and password strength validation
+    - Enforce unique email constraint
+    - Encrypt passwords before storage
+
+FR-002: User Authentication
+    - Login with email/password
+    - Generate JWT tokens (24-hour expiry)
+    - Token validation for protected endpoints
+
+FR-003: User Profile Management
+    - View and update profile: name, phone, bio, location, picture
+    - Privacy settings: public / friends-only / private
+    - Search users by name/email
+
+2.2 EXPENSE MANAGEMENT
+----------------------
+
+FR-004: Expense Recording
+    - Record shared expenses with: amount, description, payer, participants
+    - Optional: category, notes, date
+    - Multiple participants per expense supported
+
+FR-005: Bill Splitting Options
+    - Equal Split: divide amount equally
+    - Exact Split: assign exact amounts
+    - Percentage Split: allocate percentages
+    - Validate splits match total expense
+
+FR-006: Transaction History
+    - View expense history with filters (date, category, participants)
+    - Search by description
+    - Export transaction data
+
+FR-007: Expense Categories
+    - Predefined: Food, Travel, Entertainment, Groceries, Rent, Utilities
+    - Choose category when creating expense
+    - Enable category-based reports and filters
+
+2.3 BALANCE MANAGEMENT
+----------------------
+
+FR-008: Automatic Balance Calculation
+    - Real-time calculation of net balances
+    - Update balances on new expenses
+    - Track balance history with timestamps
+
+FR-009: Balance Viewing
+    - View balances with each user
+    - Summary: total owed and to be received
+    - Detailed transaction view
+    - Visual cues for balances
+
+FR-010: Settlement Processing
+    - Record payments: cash, transfer
+    - Track settlement history
+
+FR-011: Balance Optimization
+    - Suggest optimal payments for settlement
+    - Reduce number of transactions
+    - Handle multi-user scenarios
+    - Show before/after comparison
+
+
+===============================================================================
+3. NON-FUNCTIONAL REQUIREMENTS
+===============================================================================
+
+3.1 PERFORMANCE
+---------------
+
+NFR-001: Response Time
+    - API responses within 2 seconds
+    - Indexed DB queries
+    - Use pagination
+
+NFR-002: Scalability
+    - Support 1000+ concurrent users
+    - Horizontally scalable microservices
+    - Load-based service scaling
+
+NFR-003: Availability
+    - 99.9% uptime target
+    - Graceful fallback during failures
+    - Health checks enabled
+
+3.2 SECURITY
+------------
+
+NFR-004: Data Protection
+    - Encrypt passwords (BCrypt)
+    - JWT for authentication
+    - HTTPS enforced in production
+
+NFR-005: Authorization
+    - Users access only their own data
+    - Shared data accessible to participants
+    - Admin-only features restricted
+
+NFR-006: Input Validation
+    - Validate/sanitize all inputs
+    - Prevent SQL injection
+    - XSS protection applied
+
+3.3 USABILITY
+-------------
+
+NFR-007: API Documentation
+    - Swagger UI for all endpoints
+    - Request/response samples
+    - JWT authentication flow documented
+
+NFR-008: Error Messages
+    - Human-readable error messages
+    - Unified error format
+    - Proper HTTP status codes
+
+3.4 COMPATIBILITY
+-----------------
+
+NFR-009: Technology Stack
+    - Java 17+ compatibility
+    - MySQL 8.0+ supported
+    - Follows REST API standards
+
+
+===============================================================================
+4. TECHNICAL CONSTRAINTS
+===============================================================================
+
+TC-001: Programming Language
+    - Java 17 (LTS)
+    - Spring Boot 3.4.7
+
+TC-002: Database
+    - MySQL
+    - One database per service
+
+TC-003: Architecture
+    - Microservices pattern
+    - Eureka for service discovery
+    - API Gateway for routing
+
+TC-004: Communication
+    - REST APIs for client communication
+    - HTTP inter-service calls
+    - JSON format
+
+
+===============================================================================
+5. DEPENDENCIES
+===============================================================================
+
+DEPENDENCIES:
+-------------
+    - Java 17+
+    - Maven
+    - MySQL
+    - IntelliJ IDEA (recommended)
+
+EXTERNAL DEPENDENCIES:
+----------------------
+    - Spring Boot ecosystem
+    - JWT handling library
+    - Swagger for documentation
+
+
+===============================================================================
+6. ACCEPTANCE CRITERIA
+===============================================================================
+
+6.1 USER REGISTRATION
+    - Register with valid email/password
+    - Reject duplicate emails
+    - Return JWT on success
+    - Password encrypted in DB
+
+6.2 EXPENSE CREATION
+    - Add expenses with multiple participants
+    - Equal/Exact/Percentage splits supported
+    - Balances updated on new expense
+    - History reflects expense
+
+6.3 BALANCE CALCULATION
+    - Accurate net balances
+    - Real-time updates
+    - Suggestions for settlement
+    - Settlement reduces balances
+
+6.4 SYSTEM INTEGRATION
+    - Services communicate correctly
+    - Eureka registration successful
+    - Gateway routing verified
+    - DB transactions consistent
+
+
+===============================================================================
+7. SUCCESS METRICS
+===============================================================================
+
+TECHNICAL METRICS:
+------------------
+    - APIs respond < 2s
+    - 100% test coverage (business logic)
+    - Zero critical security issues
+    - All services discoverable
+
+FUNCTIONAL METRICS:
+-------------------
+    - End-to-end expense flow works
+    - Balance math verified
+    - Settlement operations succeed
+    - Split methods accurate
+
+USER EXPERIENCE METRICS:
+------------------------
+    - Friendly error messages
+    - Complete Swagger docs
+    - Clear API responses
+    - Seamless authentication
+

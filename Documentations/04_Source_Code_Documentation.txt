@@ -1,0 +1,1302 @@
+==========================================
+
+
+SPLIT GROUP MICROSERVICES
+SOURCE CODE DOCUMENTATION
+
+
+==========================================
+1. PROJECT STRUCTURE OVERVIEW
+==========================================
+
+ROOT PROJECT STRUCTURE:
+SplitGroupService/
+├── pom.xml                    # Parent POM with shared dependencies
+├── eureka-server/             # Service Discovery (Port 8761)
+├── api-gateway/               # Request Routing (Port 8080)
+├── auth-service/              # Authentication (Port 8081)
+├── user-service/              # User Profiles (Port 8082)
+├── transaction-service/       # Expense Tracking (Port 8083)
+└── balance-service/           # Balance Management (Port 8084)
+
+EACH SERVICE FOLLOWS STANDARD SPRING BOOT STRUCTURE:
+service-name/
+├── pom.xml                    # Service-specific dependencies
+└── src/main/
+    ├── java/com/service/name/
+    │   ├── ServiceApplication.java    # Main class
+    │   ├── controller/                # REST endpoints
+    │   ├── service/                   # Business logic
+    │   ├── entity/                    # JPA entities
+    │   ├── repository/                # Data access
+    │   ├── dto/                       # Data transfer objects
+    │   └── config/                    # Configuration classes
+    └── resources/
+        └── application.yml            # Configuration
+
+
+==========================================
+2. PARENT POM CONFIGURATION
+==========================================
+
+FILE: pom.xml (Root)
+PURPOSE: Manages shared dependencies and versions for all services
+
+KEY SECTIONS:
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.7</version>
+    </parent>
+
+    <properties>
+        <java.version>17</java.version>
+        <spring-cloud.version>2024.0.1</spring-cloud.version>
+        <jwt.version>0.12.5</jwt.version>
+    </properties>
+
+    <modules>
+        <module>eureka-server</module>
+        <module>api-gateway</module>
+        <module>auth-service</module>
+        <module>user-service</module>
+        <module>transaction-service</module>
+        <module>balance-service</module>
+    </modules>
+
+DEPENDENCY MANAGEMENT:
+    - Spring Cloud BOM for microservices
+    - JWT libraries for authentication
+    - SpringDoc OpenAPI for documentation
+    - Common dependencies for all services
+
+
+==========================================
+3. EUREKA SERVER IMPLEMENTATION
+==========================================
+
+3.1 MAIN APPLICATION CLASS
+FILE: eureka-server/src/main/java/com/service/eureka/EurekaServerApplication.java
+
+    @SpringBootApplication
+    @EnableEurekaServer
+    public class EurekaServerApplication {
+        public static void main(String[] args) {
+            SpringApplication.run(EurekaServerApplication.class, args);
+        }
+    }
+
+KEY ANNOTATIONS:
+    @EnableEurekaServer - Enables Eureka server functionality
+
+3.2 CONFIGURATION
+FILE: eureka-server/src/main/resources/application.yml
+
+    server:
+      port: 8761
+
+    spring:
+      application:
+        name: eureka-server
+
+    eureka:
+      instance:
+        hostname: localhost
+      client:
+        register-with-eureka: false    # Don't register with itself
+        fetch-registry: false          # Don't fetch registry
+      server:
+        enable-self-preservation: false # Disable for development
+
+EXPLANATION:
+    - register-with-eureka: false - Server doesn't register with itself
+    - fetch-registry: false - Server doesn't fetch registry from itself
+    - enable-self-preservation: false - Better for development environment
+
+
+==========================================
+4. API GATEWAY IMPLEMENTATION
+==========================================
+
+4.1 MAIN APPLICATION CLASS
+FILE: api-gateway/src/main/java/com/service/gateway/ApiGatewayApplication.java
+
+    @SpringBootApplication
+    @EnableDiscoveryClient
+    public class ApiGatewayApplication {
+        public static void main(String[] args) {
+            SpringApplication.run(ApiGatewayApplication.class, args);
+        }
+    }
+
+KEY ANNOTATIONS:
+    @EnableDiscoveryClient - Enables service discovery
+
+4.2 ROUTING CONFIGURATION
+FILE: api-gateway/src/main/resources/application.yml
+
+    spring:
+      cloud:
+        gateway:
+          routes:
+            - id: auth-service
+              uri: lb://auth-service          # Load balanced
+              predicates:
+                - Path=/api/auth/**
+              filters:
+                - StripPrefix=2               # Remove /api/auth
+
+ROUTING EXPLANATION:
+    - lb://auth-service: Load balanced calls to auth-service
+    - Path=/api/auth/**: Matches paths starting with /api/auth/
+    - StripPrefix=2: Removes first 2 path segments (/api/auth)
+
+CORS CONFIGURATION:
+    globalcors:
+      cors-configurations:
+        '[/**]':
+          allowedOrigins:
+            - "http://localhost:3000"
+            - "http://localhost:4200"
+          allowedMethods:
+            - GET, POST, PUT, DELETE, OPTIONS
+          allowedHeaders: "*"
+          allowCredentials: true
+
+
+==========================================
+5. AUTH SERVICE IMPLEMENTATION
+==========================================
+
+5.1 MAIN APPLICATION CLASS
+FILE: auth-service/src/main/java/com/service/auth/AuthServiceApplication.java
+
+    @SpringBootApplication
+    @EnableDiscoveryClient
+    public class AuthServiceApplication {
+        public static void main(String[] args) {
+            SpringApplication.run(AuthServiceApplication.class, args);
+        }
+    }
+
+5.2 USER ENTITY
+FILE: auth-service/src/main/java/com/service/auth/entity/User.java
+
+    @Entity
+    @Table(name = "users")
+    public class User {
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        private Long id;
+
+        @Email(message = "Email should be valid")
+        @NotBlank(message = "Email is required")
+        @Column(unique = true, nullable = false)
+        private String email;
+
+        @NotBlank(message = "Password is required")
+        @Size(min = 6, message = "Password must be at least 6 characters")
+        @Column(nullable = false)
+        private String password;
+
+        @NotBlank(message = "Name is required")
+        @Column(nullable = false)
+        private String name;
+
+        @Column(name = "created_at")
+        private LocalDateTime createdAt;
+
+        @PrePersist
+        protected void onCreate() {
+            createdAt = LocalDateTime.now();
+            updatedAt = LocalDateTime.now();
+        }
+
+        // Getters, setters, constructors
+    }
+
+KEY ANNOTATIONS:
+    @Entity - JPA entity
+    @Table(name = "users") - Database table mapping
+    @Email, @NotBlank, @Size - Validation annotations
+    @PrePersist - Lifecycle callback before saving
+
+5.3 JWT SERVICE
+FILE: auth-service/src/main/java/com/service/auth/service/JWTService.java
+
+    @Service
+    public class JWTService {
+        @Value("${jwt.secret}")
+        private String secret;
+
+        @Value("${jwt.expiration}")
+        private long expiration;
+
+        public String generateToken(String email, Long userId, String name) {
+            return Jwts.builder()
+                    .setSubject(email)
+                    .claim("userId", userId)
+                    .claim("name", name)
+                    .setIssuedAt(new Date())
+                    .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                    .signWith(getSigningKey(), SignatureAlgorithm.HS512)
+                    .compact();
+        }
+
+        public String extractEmail(String token) {
+            return extractClaim(token, Claims::getSubject);
+        }
+
+        public Long extractUserId(String token) {
+            return extractClaim(token, claims -> claims.get("userId", Long.class));
+        }
+
+        private SecretKey getSigningKey() {
+            byte[] keyBytes = secret.getBytes();
+            return Keys.hmacShaKeyFor(keyBytes);
+        }
+
+        // Additional methods for validation, expiration checking
+    }
+
+KEY FEATURES:
+    - Uses JJWT library for JWT operations
+    - HS512 signing algorithm
+    - Custom claims for userId and name
+    - Token validation and parsing methods
+
+5.4 AUTH CONTROLLER
+FILE: auth-service/src/main/java/com/service/auth/controller/AuthController.java
+
+    @RestController
+    @RequestMapping("/")
+    public class AuthController {
+        @Autowired
+        private AuthService authService;
+
+        @PostMapping("/register")
+        public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
+            try {
+                AuthResponse response = authService.register(request);
+                return ResponseEntity.status(HttpStatus.CREATED).body(response);
+            } catch (RuntimeException e) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new AuthResponse(e.getMessage()));
+            }
+        }
+
+        @PostMapping("/login")
+        public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
+            try {
+                AuthResponse response = authService.login(request);
+                return ResponseEntity.ok(response);
+            } catch (RuntimeException e) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new AuthResponse(e.getMessage()));
+            }
+        }
+
+        @PostMapping("/validate")
+        public ResponseEntity<AuthResponse> validateToken(@RequestBody String token) {
+            // Token validation logic
+        }
+    }
+
+CONTROLLER PATTERNS:
+    - @RestController for REST endpoints
+    - @Valid for request validation
+    - Consistent error handling with try-catch
+    - Appropriate HTTP status codes
+    - ResponseEntity for response control
+
+5.5 SECURITY CONFIGURATION
+FILE: auth-service/src/main/java/com/service/auth/config/SecurityConfig.java
+
+    @Configuration
+    @EnableWebSecurity
+    public class SecurityConfig {
+        @Bean
+        public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+            http.csrf(csrf -> csrf.disable())
+                .authorizeHttpRequests(authz -> authz
+                    .requestMatchers("/register", "/login", "/health").permitAll()
+                    .requestMatchers("/actuator/**").permitAll()
+                    .requestMatchers("/v3/api-docs/**", "/swagger-ui/**").permitAll()
+                    .anyRequest().authenticated())
+                .sessionManagement(session -> session
+                    .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+
+            return http.build();
+        }
+
+        @Bean
+        public PasswordEncoder passwordEncoder() {
+            return new BCryptPasswordEncoder(12);
+        }
+    }
+
+SECURITY FEATURES:
+    - CSRF disabled (stateless API)
+    - Public endpoints for auth operations
+    - Stateless session management
+    - BCrypt password encoder with strength 12
+
+
+==========================================
+6. USER SERVICE IMPLEMENTATION
+==========================================
+
+6.1 USER PROFILE ENTITY
+FILE: user-service/src/main/java/com/service/user/entity/UserProfile.java
+
+    @Entity
+    @Table(name = "user_profiles")
+    public class UserProfile {
+        @Id
+        private Long userId;  // No auto-generation, set from auth service
+
+        @Column(nullable = false)
+        private String email;
+
+        @Column(nullable = false)
+        private String name;
+
+        @Size(max = 15, message = "Phone number cannot exceed 15 characters")
+        private String phone;
+
+        @Size(max = 500, message = "Bio cannot exceed 500 characters")
+        private String bio;
+
+        @Enumerated(EnumType.STRING)
+        private PrivacyLevel privacyLevel = PrivacyLevel.PUBLIC;
+
+        @Column(name = "profile_completed")
+        private Boolean profileCompleted = false;
+
+        public enum PrivacyLevel {
+            PUBLIC, FRIENDS_ONLY, PRIVATE
+        }
+
+        public boolean isProfileComplete() {
+            return name != null && !name.trim().isEmpty() &&
+                   phone != null && !phone.trim().isEmpty() &&
+                   bio != null && !bio.trim().isEmpty();
+        }
+    }
+
+KEY FEATURES:
+    - Uses userId from auth service as primary key
+    - Enum for privacy levels
+    - Business logic for profile completion
+    - Validation annotations for data integrity
+
+6.2 AUTH CLIENT SERVICE
+FILE: user-service/src/main/java/com/service/user/service/AuthClientService.java
+
+    @Service
+    public class AuthClientService {
+        @Autowired
+        private RestTemplate restTemplate;
+
+        private static final String AUTH_SERVICE_URL = "http://auth-service";
+
+        public Long extractUserIdFromToken(String authHeader) {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                throw new RuntimeException("Invalid authorization header");
+            }
+
+            String token = authHeader.substring(7);
+            AuthResponse authResponse = validateToken(token);
+
+            return authResponse.getUserId();
+        }
+
+        public AuthResponse validateToken(String token) {
+            String url = AUTH_SERVICE_URL + "/validate";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Content-Type", "application/json");
+
+            HttpEntity<String> entity = new HttpEntity<>("\"" + token + "\"", headers);
+
+            ResponseEntity<AuthResponse> response = restTemplate.exchange(
+                url, HttpMethod.POST, entity, AuthResponse.class);
+
+            return response.getBody();
+        }
+    }
+
+INTER-SERVICE COMMUNICATION:
+    - Uses @LoadBalanced RestTemplate
+    - Service discovery via Eureka (http://auth-service)
+    - JWT token validation with auth service
+    - Error handling for service communication
+
+
+==========================================
+7. TRANSACTION SERVICE IMPLEMENTATION
+==========================================
+
+7.1 TRANSACTION ENTITY
+FILE: transaction-service/src/main/java/com/service/transaction/entity/Transaction.java
+
+    @Entity
+    @Table(name = "transactions")
+    public class Transaction {
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        private Long id;
+
+        @NotNull(message = "Paid by user ID is required")
+        @Column(name = "paid_by", nullable = false)
+        private Long paidBy;
+
+        @NotNull(message = "Owed by user ID is required")
+        @Column(name = "owed_by", nullable = false)
+        private Long owedBy;
+
+        @NotNull(message = "Amount is required")
+        @DecimalMin(value = "0.01", message = "Amount must be greater than 0")
+        @Column(nullable = false, precision = 10, scale = 2)
+        private BigDecimal amount;
+
+        @Size(max = 500, message = "Description cannot exceed 500 characters")
+        @Column(nullable = false)
+        private String description;
+
+        @Enumerated(EnumType.STRING)
+        private TransactionStatus status = TransactionStatus.ACTIVE;
+
+        @Enumerated(EnumType.STRING)
+        private SplitType splitType = SplitType.EQUAL;
+
+        public enum TransactionStatus {
+            ACTIVE, CANCELLED, SETTLED
+        }
+
+        public enum SplitType {
+            EQUAL, EXACT, PERCENTAGE
+        }
+
+        public BigDecimal getAmountForUser(Long userId) {
+            if (userId.equals(owedBy)) {
+                return amount; // They owe this amount
+            } else if (userId.equals(paidBy)) {
+                return amount.negate(); // They are owed this amount
+            } else {
+                return BigDecimal.ZERO;
+            }
+        }
+    }
+
+KEY FEATURES:
+    - BigDecimal for monetary amounts
+    - Enums for status and split type
+    - Business logic methods
+    - Proper validation annotations
+
+7.2 TRANSACTION SERVICE BUSINESS LOGIC
+FILE: transaction-service/src/main/java/com/service/transaction/service/TransactionService.java
+
+    @Service
+    @Transactional
+    public class TransactionService {
+        @Autowired
+        private TransactionRepository transactionRepository;
+
+        @Autowired
+        private AuthClientService authClientService;
+
+        public List<TransactionResponse> createTransaction(TransactionRequest request, Long createdByUserId) {
+            // Validate request
+            validateTransactionRequest(request);
+
+            // Calculate individual amounts based on split type
+            List<TransactionRequest.ParticipantShare> calculatedShares = calculateShares(request);
+
+            // Create individual transaction records
+            List<Transaction> transactions = new ArrayList<>();
+            String groupId = generateGroupId();
+
+            for (TransactionRequest.ParticipantShare participant : calculatedShares) {
+                Transaction transaction = new Transaction();
+                transaction.setPaidBy(request.getPaidBy());
+                transaction.setOwedBy(participant.getUserId());
+                transaction.setAmount(participant.getAmount());
+                transaction.setDescription(request.getDescription());
+                transaction.setGroupId(groupId);
+                transactions.add(transaction);
+            }
+
+            // Save all transactions
+            List<Transaction> savedTransactions = transactionRepository.saveAll(transactions);
+
+            // Convert to responses
+            return savedTransactions.stream()
+                    .map(this::convertToResponseWithUserNames)
+                    .collect(Collectors.toList());
+        }
+
+        private List<TransactionRequest.ParticipantShare> calculateShares(TransactionRequest request) {
+            List<TransactionRequest.ParticipantShare> calculatedShares = new ArrayList<>();
+
+            switch (request.getSplitType()) {
+                case EQUAL:
+                    BigDecimal equalShare = request.getTotalAmount()
+                            .divide(new BigDecimal(request.getParticipants().size()), 2, RoundingMode.HALF_UP);
+
+                    for (TransactionRequest.ParticipantShare participant : request.getParticipants()) {
+                        participant.setAmount(equalShare);
+                        calculatedShares.add(participant);
+                    }
+                    break;
+
+                case EXACT:
+                    calculatedShares.addAll(request.getParticipants());
+                    break;
+
+                case PERCENTAGE:
+                    for (TransactionRequest.ParticipantShare participant : request.getParticipants()) {
+                        BigDecimal amount = request.getTotalAmount()
+                                .multiply(participant.getPercentage())
+                                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+                        participant.setAmount(amount);
+                        calculatedShares.add(participant);
+                    }
+                    break;
+            }
+
+            return calculatedShares;
+        }
+    }
+
+BUSINESS LOGIC FEATURES:
+    - Split calculation algorithms
+    - Transaction validation
+    - Group ID generation for related transactions
+    - User name resolution via auth service
+    - Comprehensive error handling
+
+==========================================
+8. BALANCE SERVICE IMPLEMENTATION
+==========================================
+
+8.1 BALANCE ENTITY
+FILE: balance-service/src/main/java/com/service/balance/entity/Balance.java
+
+    @Entity
+    @Table(name = "balances")
+    public class Balance {
+        @Id
+        @Column(name = "balance_id")
+        private String balanceId;  // Format: "userId1_userId2"
+
+        @NotNull
+        @Column(name = "user1", nullable = false)
+        private Long user1;  // Lower user ID
+
+        @NotNull
+        @Column(name = "user2", nullable = false)
+        private Long user2;  // Higher user ID
+
+        @Column(nullable = false, precision = 10, scale = 2)
+        private BigDecimal amount = BigDecimal.ZERO;
+
+        public Balance(Long userId1, Long userId2) {
+            // Always order user IDs to ensure consistent balance ID
+            if (userId1 < userId2) {
+                this.user1 = userId1;
+                this.user2 = userId2;
+            } else {
+                this.user1 = userId2;
+                this.user2 = userId1;
+            }
+            this.balanceId = this.user1 + "_" + this.user2;
+        }
+
+        public BigDecimal getAmountForUser(Long userId) {
+            if (userId.equals(user1)) {
+                return amount; // Positive = user1 owes user2
+            } else if (userId.equals(user2)) {
+                return amount.negate(); // Negative = user2 owes user1
+            } else {
+                throw new IllegalArgumentException("User not part of this balance");
+            }
+        }
+
+        public static String createBalanceId(Long userId1, Long userId2) {
+            Long lower = Math.min(userId1, userId2);
+            Long higher = Math.max(userId1, userId2);
+            return lower + "_" + higher;
+        }
+    }
+
+BALANCE LOGIC:
+    - Unique balance ID ensures one record per user pair
+    - User IDs always ordered (user1 < user2)
+    - Positive amount: user1 owes user2
+    - Negative amount: user2 owes user1
+    - Static utility methods for balance ID creation
+
+8.2 BALANCE OPTIMIZATION ALGORITHM
+FILE: balance-service/src/main/java/com/service/balance/service/BalanceService.java
+
+    private List<BalanceOptimization.OptimizedPayment> generateOptimizedPayments(
+            Map<Long, BigDecimal> netPositions) {
+
+        List<BalanceOptimization.OptimizedPayment> payments = new ArrayList<>();
+
+        // Separate debtors (negative balance) and creditors (positive balance)
+        List<Map.Entry<Long, BigDecimal>> debtors = netPositions.entrySet().stream()
+                .filter(entry -> entry.getValue().compareTo(BigDecimal.ZERO) < 0)
+                .sorted(Map.Entry.comparingByValue())
+                .collect(Collectors.toList());
+
+        List<Map.Entry<Long, BigDecimal>> creditors = netPositions.entrySet().stream()
+                .filter(entry -> entry.getValue().compareTo(BigDecimal.ZERO) > 0)
+                .sorted(Map.Entry.<Long, BigDecimal>comparingByValue().reversed())
+                .collect(Collectors.toList());
+
+        // Match debtors with creditors
+        int debtorIndex = 0;
+        int creditorIndex = 0;
+
+        while (debtorIndex < debtors.size() && creditorIndex < creditors.size()) {
+            Map.Entry<Long, BigDecimal> debtor = debtors.get(debtorIndex);
+            Map.Entry<Long, BigDecimal> creditor = creditors.get(creditorIndex);
+
+            BigDecimal debtAmount = debtor.getValue().abs();
+            BigDecimal creditAmount = creditor.getValue();
+
+            BigDecimal paymentAmount = debtAmount.min(creditAmount);
+
+            if (paymentAmount.compareTo(autoSettleThreshold) > 0) {
+                payments.add(new BalanceOptimization.OptimizedPayment(
+                    debtor.getKey(),
+                    creditor.getKey(),
+                    paymentAmount.setScale(2, RoundingMode.HALF_UP)
+                ));
+            }
+
+            // Update remaining amounts
+            debtor.setValue(debtor.getValue().add(paymentAmount));
+            creditor.setValue(creditor.getValue().subtract(paymentAmount));
+
+            // Move to next debtor or creditor if settled
+            if (debtor.getValue().abs().compareTo(autoSettleThreshold) <= 0) {
+                debtorIndex++;
+            }
+            if (creditor.getValue().compareTo(autoSettleThreshold) <= 0) {
+                creditorIndex++;
+            }
+        }
+
+        return payments;
+    }
+
+OPTIMIZATION ALGORITHM:
+    1. Calculate net position for each user in group
+    2. Separate users into debtors and creditors
+    3. Sort debtors by amount owed (ascending)
+    4. Sort creditors by amount owed (descending)
+    5. Match largest debtor with largest creditor
+    6. Create payment for smaller of the two amounts
+    7. Update remaining balances
+    8. Repeat until all balances settled
+
+ALGORITHM BENEFITS:
+    - Minimizes number of transactions
+    - Handles complex multi-user scenarios
+    - Maintains balance accuracy
+    - Provides clear payment instructions
+
+==========================================
+9. CONFIGURATION PATTERNS
+==========================================
+
+9.1 APPLICATION.YML STRUCTURE
+COMMON PATTERN FOR ALL SERVICES:
+
+    # Server Configuration
+    server:
+      port: 808X                    # Unique port per service
+
+    # Spring Configuration
+    spring:
+      application:
+        name: service-name          # Used for service discovery
+
+      # Database Configuration
+      datasource:
+        url: jdbc:mysql://localhost:3306/service_db
+        username: root
+        password: yourpassword
+        driver-class-name: com.mysql.cj.jdbc.Driver
+
+      # JPA Configuration
+      jpa:
+        hibernate:
+          ddl-auto: update          # Auto-create/update tables
+        show-sql: true              # Debug SQL queries
+        properties:
+          hibernate:
+            dialect: org.hibernate.dialect.MySQLDialect
+
+    # Service Discovery
+    eureka:
+      client:
+        service-url:
+          defaultZone: http://localhost:8761/eureka/
+      instance:
+        prefer-ip-address: true
+        lease-renewal-interval-in-seconds: 10
+
+    # API Documentation
+    springdoc:
+      swagger-ui:
+        path: /swagger-ui.html
+      api-docs:
+        path: /v3/api-docs
+
+9.2 RESTTEMPLATE CONFIGURATION
+FILE: */src/main/java/com/service/*/config/RestTemplateConfig.java
+
+    @Configuration
+    public class RestTemplateConfig {
+        @Bean
+        @LoadBalanced
+        public RestTemplate restTemplate() {
+            return new RestTemplate();
+        }
+    }
+
+PURPOSE:
+    - @LoadBalanced enables service discovery
+    - Automatic load balancing between service instances
+    - Integration with Eureka for service location
+
+9.3 SWAGGER CONFIGURATION
+FILE: */src/main/java/com/service/*/config/SwaggerConfig.java
+
+    @Configuration
+    public class SwaggerConfig {
+        @Bean
+        public OpenAPI serviceAPI() {
+            return new OpenAPI()
+                    .servers(List.of(
+                        new Server().url("http://localhost:808X").description("Direct Service"),
+                        new Server().url("http://localhost:8080/api/service").description("Via Gateway")
+                    ))
+                    .info(new Info()
+                            .title("Service API")
+                            .description("Service description")
+                            .version("1.0.0")
+                            .contact(new Contact()
+                                    .name("Split Group Team")
+                                    .email("support@splitgroup.com")));
+        }
+    }
+
+FEATURES:
+    - Multiple server options (direct and gateway)
+    - Comprehensive API information
+    - Contact details for support
+
+==========================================
+10. DATA TRANSFER OBJECTS (DTOs)
+==========================================
+
+10.1 REQUEST DTO PATTERN
+EXAMPLE: RegisterRequest.java
+
+    public class RegisterRequest {
+        @Email(message = "Email should be valid")
+        @NotBlank(message = "Email is required")
+        private String email;
+
+        @NotBlank(message = "Password is required")
+        @Size(min = 6, message = "Password must be at least 6 characters")
+        private String password;
+
+        @NotBlank(message = "Name is required")
+        @Size(min = 2, max = 50, message = "Name must be between 2 and 50 characters")
+        private String name;
+
+        // Default constructor required for JSON deserialization
+        public RegisterRequest() {}
+
+        // Constructor with parameters for testing
+        public RegisterRequest(String email, String password, String name) {
+            this.email = email;
+            this.password = password;
+            this.name = name;
+        }
+
+        // Getters and setters
+    }
+
+REQUEST DTO PRINCIPLES:
+    - Validation annotations for data integrity
+    - Default constructor for JSON binding
+    - Parameterized constructor for testing
+    - Clear field naming and documentation
+
+10.2 RESPONSE DTO PATTERN
+EXAMPLE: AuthResponse.java
+
+    public class AuthResponse {
+        private String token;
+        private String email;
+        private String name;
+        private Long userId;
+        private String message;
+
+        // Success constructor
+        public AuthResponse(String token, String email, String name, Long userId) {
+            this.token = token;
+            this.email = email;
+            this.name = name;
+            this.userId = userId;
+            this.message = "Authentication successful";
+        }
+
+        // Error constructor
+        public AuthResponse(String message) {
+            this.message = message;
+        }
+
+        // Entity conversion constructor
+        public AuthResponse(Entity entity) {
+            // Convert entity to response
+        }
+
+        // Getters and setters
+    }
+
+RESPONSE DTO PRINCIPLES:
+    - Multiple constructors for different scenarios
+    - Consistent success/error handling
+    - Entity conversion methods
+    - No sensitive data exposure (passwords)
+
+10.3 COMPLEX DTO PATTERN
+EXAMPLE: TransactionRequest.java
+
+    public class TransactionRequest {
+        @NotNull(message = "Paid by user ID is required")
+        private Long paidBy;
+
+        @NotNull(message = "Total amount is required")
+        @DecimalMin(value = "0.01", message = "Amount must be greater than 0")
+        private BigDecimal totalAmount;
+
+        @NotBlank(message = "Description is required")
+        private String description;
+
+        @NotNull(message = "At least one participant is required")
+        @Size(min = 1, message = "At least one participant is required")
+        private List<ParticipantShare> participants;
+
+        private SplitType splitType = SplitType.EQUAL;
+
+        // Nested DTO class
+        public static class ParticipantShare {
+            @NotNull(message = "User ID is required")
+            private Long userId;
+            private BigDecimal amount;      // For exact splits
+            private BigDecimal percentage; // For percentage splits
+
+            // Constructors, getters, setters
+        }
+
+        // Getters, setters, validation methods
+    }
+
+COMPLEX DTO FEATURES:
+    - Nested DTO classes for related data
+    - Multiple validation scenarios
+    - Business rule validation
+    - Default values for optional fields
+
+==========================================
+11. REPOSITORY PATTERNS
+==========================================
+
+11.1 BASIC REPOSITORY
+EXAMPLE: UserRepository.java
+
+    @Repository
+    public interface UserRepository extends JpaRepository<User, Long> {
+        Optional<User> findByEmail(String email);
+        boolean existsByEmail(String email);
+
+        @Query("SELECT u FROM User u WHERE LOWER(u.email) = LOWER(:email)")
+        Optional<User> findByEmailIgnoreCase(@Param("email") String email);
+    }
+
+BASIC REPOSITORY FEATURES:
+    - Extends JpaRepository for CRUD operations
+    - Custom finder methods
+    - Case-insensitive queries
+    - Existence checks for business logic
+
+11.2 COMPLEX REPOSITORY
+EXAMPLE: TransactionRepository.java
+
+    @Repository
+    public interface TransactionRepository extends JpaRepository<Transaction, Long> {
+
+        @Query("SELECT t FROM Transaction t WHERE t.paidBy = :userId OR t.owedBy = :userId ORDER BY t.transactionDate DESC")
+        List<Transaction> findTransactionsByUser(@Param("userId") Long userId);
+
+        @Query("SELECT t FROM Transaction t WHERE " +
+               "(t.paidBy = :userId1 AND t.owedBy = :userId2) OR " +
+               "(t.paidBy = :userId2 AND t.owedBy = :userId1) " +
+               "ORDER BY t.transactionDate DESC")
+        List<Transaction> findTransactionsBetweenUsers(@Param("userId1") Long userId1,
+                                                      @Param("userId2") Long userId2);
+
+        @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.paidBy = :userId AND t.status = 'ACTIVE'")
+        BigDecimal calculateTotalPaidByUser(@Param("userId") Long userId);
+
+        @Query("SELECT COUNT(t) FROM Transaction t WHERE t.paidBy = :userId OR t.owedBy = :userId")
+        Long countTransactionsByUser(@Param("userId") Long userId);
+    }
+
+COMPLEX REPOSITORY FEATURES:
+    - Multi-table JOIN queries
+    - Aggregate functions (SUM, COUNT)
+    - Complex WHERE conditions
+    - Custom business logic queries
+    - Parameter binding with @Param
+
+11.3 REPOSITORY BEST PRACTICES
+    1. Use specific method names that describe the query
+    2. Leverage Spring Data JPA naming conventions
+    3. Use @Query for complex business logic
+    4. Return Optional<T> for single results that might not exist
+    5. Use COALESCE for handling null values in aggregations
+    6. Index frequently queried columns
+    7. Use pagination for large result sets
+
+==========================================
+12. SERVICE LAYER PATTERNS
+==========================================
+
+12.1 SERVICE CLASS STRUCTURE
+STANDARD PATTERN FOR ALL SERVICES:
+
+    @Service
+    @Transactional
+    public class ServiceNameService {
+        @Autowired
+        private EntityRepository entityRepository;
+
+        @Autowired
+        private ExternalServiceClient externalServiceClient;
+
+        @Value("${service.config.property}")
+        private String configProperty;
+
+        // Public business methods
+        public ResponseDTO businessMethod(RequestDTO request) {
+            // 1. Validate input
+            validateRequest(request);
+
+            // 2. Perform business logic
+            Entity entity = performBusinessLogic(request);
+
+            // 3. Save to database
+            Entity savedEntity = entityRepository.save(entity);
+
+            // 4. Call external services if needed
+            callExternalService(savedEntity);
+
+            // 5. Convert to response
+            return convertToResponse(savedEntity);
+        }
+
+        // Private helper methods
+        private void validateRequest(RequestDTO request) {
+            // Validation logic
+        }
+
+        private Entity performBusinessLogic(RequestDTO request) {
+            // Business logic implementation
+        }
+
+        private void callExternalService(Entity entity) {
+            // External service calls
+        }
+
+        private ResponseDTO convertToResponse(Entity entity) {
+            // Entity to DTO conversion
+        }
+    }
+
+SERVICE LAYER PRINCIPLES:
+    - @Transactional for database consistency
+    - Input validation before processing
+    - Business logic separation from controllers
+    - External service calls abstracted
+    - Entity to DTO conversion
+
+12.2 ERROR HANDLING PATTERN
+    @Service
+    public class ServiceNameService {
+
+        public ResponseDTO businessMethod(RequestDTO request) {
+            try {
+                // Business logic
+                return performOperation(request);
+            } catch (BusinessException e) {
+                log.error("Business error in {}: {}", methodName, e.getMessage());
+                throw new RuntimeException("Business operation failed: " + e.getMessage());
+            } catch (DataAccessException e) {
+                log.error("Database error in {}: {}", methodName, e.getMessage());
+                throw new RuntimeException("Data access failed");
+            } catch (Exception e) {
+                log.error("Unexpected error in {}: {}", methodName, e.getMessage(), e);
+                throw new RuntimeException("Unexpected error occurred");
+            }
+        }
+    }
+
+ERROR HANDLING PRINCIPLES:
+    - Specific exception types for different error categories
+    - Comprehensive logging with context
+    - Generic error messages for external callers
+    - Exception transformation for API consistency
+
+==========================================
+13. CONTROLLER PATTERNS
+==========================================
+
+13.1 STANDARD CONTROLLER STRUCTURE
+    @RestController
+    @RequestMapping("/")
+    public class EntityController {
+        @Autowired
+        private EntityService entityService;
+
+        @Autowired
+        private AuthClientService authClientService;
+
+        @PostMapping("/entities")
+        public ResponseEntity<?> createEntity(@Valid @RequestBody CreateEntityRequest request,
+                                             @RequestHeader("Authorization") String authHeader) {
+            try {
+                // Extract user from JWT token
+                Long userId = authClientService.extractUserIdFromToken(authHeader);
+
+                // Delegate to service layer
+                EntityResponse response = entityService.createEntity(request, userId);
+
+                // Return appropriate HTTP status
+                return ResponseEntity.status(HttpStatus.CREATED).body(response);
+            } catch (RuntimeException e) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new ErrorResponse(e.getMessage()));
+            }
+        }
+
+        @GetMapping("/entities/{id}")
+        public ResponseEntity<?> getEntity(@PathVariable Long id) {
+            try {
+                EntityResponse response = entityService.getEntity(id);
+                return ResponseEntity.ok(response);
+            } catch (RuntimeException e) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(new ErrorResponse(e.getMessage()));
+            }
+        }
+    }
+
+CONTROLLER PRINCIPLES:
+    - @RestController for REST endpoints
+    - Consistent RequestMapping patterns
+    - JWT token extraction and validation
+    - Service layer delegation
+    - Proper HTTP status codes
+    - Consistent error response format
+
+13.2 AUTHENTICATION PATTERNS
+    // Public endpoint (no authentication)
+    @GetMapping("/public-endpoint")
+    public ResponseEntity<?> publicEndpoint() {
+        // No authentication required
+    }
+
+    // Optional authentication
+    @GetMapping("/optional-auth")
+    public ResponseEntity<?> optionalAuth(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        Long userId = null;
+        if (authHeader != null) {
+            userId = authClientService.extractUserIdFromToken(authHeader);
+        }
+        // Use userId if available, otherwise proceed as anonymous
+    }
+
+    // Required authentication
+    @PostMapping("/protected-endpoint")
+    public ResponseEntity<?> protectedEndpoint(@RequestHeader("Authorization") String authHeader) {
+        Long userId = authClientService.extractUserIdFromToken(authHeader);
+        // User must be authenticated
+    }
+
+    // Owner-only access
+    @PutMapping("/entities/{id}")
+    public ResponseEntity<?> updateEntity(@PathVariable Long id,
+                                         @RequestHeader("Authorization") String authHeader) {
+        Long userId = authClientService.extractUserIdFromToken(authHeader);
+
+        // Verify user owns the resource
+        if (!entityService.isOwner(id, userId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ErrorResponse("Access denied"));
+        }
+
+        // Proceed with update
+    }
+
+==========================================
+14. COMMON UTILITIES AND HELPERS
+==========================================
+
+14.1 BALANCE ID GENERATION
+    public static String createBalanceId(Long userId1, Long userId2) {
+        if (userId1.equals(userId2)) {
+            throw new IllegalArgumentException("Cannot create balance ID for same user");
+        }
+
+        Long lower = Math.min(userId1, userId2);
+        Long higher = Math.max(userId1, userId2);
+        return lower + "_" + higher;
+    }
+
+14.2 GROUP ID GENERATION
+    private String generateGroupId() {
+        return "TXN_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 1000);
+    }
+
+14.3 USER NAME RESOLUTION
+    private String getUserName(Long userId) {
+        try {
+            AuthClientService.UserInfo userInfo = authClientService.getUserInfo(userId);
+            return userInfo.getName();
+        } catch (Exception e) {
+            log.warn("Could not fetch user name for ID {}: {}", userId, e.getMessage());
+            return "User " + userId; // Fallback
+        }
+    }
+
+14.4 AMOUNT CALCULATION HELPERS
+    public BigDecimal calculateEqualShare(BigDecimal totalAmount, int participantCount) {
+        return totalAmount.divide(new BigDecimal(participantCount), 2, RoundingMode.HALF_UP);
+    }
+
+    public BigDecimal calculatePercentageAmount(BigDecimal totalAmount, BigDecimal percentage) {
+        return totalAmount.multiply(percentage).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+    }
+
+==========================================
+15. TESTING UTILITIES
+==========================================
+
+15.1 TEST DATA BUILDERS
+    public class TransactionTestDataBuilder {
+        private TransactionRequest request = new TransactionRequest();
+
+        public TransactionTestDataBuilder withPaidBy(Long paidBy) {
+            request.setPaidBy(paidBy);
+            return this;
+        }
+
+        public TransactionTestDataBuilder withAmount(BigDecimal amount) {
+            request.setTotalAmount(amount);
+            return this;
+        }
+
+        public TransactionTestDataBuilder withParticipants(Long... userIds) {
+            List<TransactionRequest.ParticipantShare> participants = Arrays.stream(userIds)
+                    .map(TransactionRequest.ParticipantShare::new)
+                    .collect(Collectors.toList());
+            request.setParticipants(participants);
+            return this;
+        }
+
+        public TransactionRequest build() {
+            return request;
+        }
+    }
+
+USAGE:
+    TransactionRequest request = new TransactionTestDataBuilder()
+        .withPaidBy(1L)
+        .withAmount(new BigDecimal("60.00"))
+        .withParticipants(1L, 2L)
+        .build();
+
+15.2 MOCK DATA FACTORIES
+    public class MockDataFactory {
+        public static User createTestUser(String email, String name) {
+            User user = new User();
+            user.setId(1L);
+            user.setEmail(email);
+            user.setName(name);
+            user.setPassword("encodedPassword");
+            user.setCreatedAt(LocalDateTime.now());
+            return user;
+        }
+
+        public static AuthResponse createAuthResponse(Long userId, String email, String name) {
+            return new AuthResponse("test-jwt-token", email, name, userId);
+        }
+    }
+
+==========================================
+16. CODE QUALITY STANDARDS
+==========================================
+
+16.1 NAMING CONVENTIONS
+CLASSES:
+    - PascalCase: UserService, TransactionController
+    - Descriptive names: AuthClientService, BalanceOptimization
+
+METHODS:
+    - camelCase: createTransaction, calculateBalance
+    - Verb-noun pattern: getUserById, updateProfile
+    - Boolean methods: isOwner, canAccessProfile
+
+VARIABLES:
+    - camelCase: totalAmount, userId
+    - Descriptive names: avoid abbreviations
+    - Constants: UPPER_SNAKE_CASE
+
+16.2 DOCUMENTATION STANDARDS
+    /**
+     * Creates a new transaction with bill splitting functionality
+     *
+     * @param request Transaction creation request with participants and amounts
+     * @param createdByUserId ID of the user creating this transaction
+     * @return List of transaction records (one per participant)
+     * @throws RuntimeException if validation fails or business rules violated
+     */
+    public List<TransactionResponse> createTransaction(TransactionRequest request, Long createdByUserId) {
+        // Implementation
+    }
+
+16.3 ERROR HANDLING STANDARDS
+    - Use specific exception types
+    - Provide meaningful error messages
+    - Log errors with appropriate levels
+    - Return consistent error response format
+    - Don't expose internal implementation details
+
+16.4 VALIDATION STANDARDS
+    - Use Bean Validation annotations (@NotNull, @Email, @Size)
+    - Validate at DTO level for input validation
+    - Validate at service level for business rules
+    - Provide clear validation error messages
+    - Use custom validators for complex rules
+

@@ -1,0 +1,386 @@
+================================================================================
+                    VERSIONING AND DEPENDENCY MANAGEMENT
+                           Split Group Application
+================================================================================
+
+1. OVERVIEW
+-----------
+This document explains how versions are managed across all components of the
+Split Group application. It covers framework versions, dependency management,
+API versioning, and upgrade strategies.
+
+
+2. PROJECT VERSION STRUCTURE
+----------------------------
+Project follows semantic versioning (SemVer): MAJOR.MINOR.PATCH
+
+Current Version: 1.0.0
+    - MAJOR (1): Initial stable release
+    - MINOR (0): No new features yet
+    - PATCH (0): No bug fixes yet
+
+Version Increment Rules:
+    - MAJOR: Breaking changes that require client updates
+    - MINOR: New features that are backward compatible
+    - PATCH: Bug fixes that don't change functionality
+
+
+3. CORE FRAMEWORK VERSIONS
+--------------------------
+
+Java Version: 17 (LTS)
+Reason: Long Term Support, stable, industry standard
+Alternative considered: Java 21 (too new), Java 11 (older)
+
+Spring Boot Version: 3.4.7
+Reason: Compatible with Spring Cloud 2024.0.1, stable release
+Previous issue: 3.5.3 was incompatible with Spring Cloud
+
+Spring Cloud Version: 2024.0.1
+Reason: Latest stable release for microservices components
+Provides: Eureka, Gateway, LoadBalancer
+
+Maven Version: 3.6+
+Reason: Compatible with Java 17, stable build tool
+
+
+4. DEPENDENCY MANAGEMENT STRATEGY
+---------------------------------
+
+Parent POM Approach:
+    - Single parent POM manages all dependency versions
+    - Child POMs inherit versions automatically
+    - Ensures consistency across all services
+
+Parent POM Structure:
+    ```
+    SplitGroupService (Parent)
+    ├── eureka-server (Child)
+    ├── api-gateway (Child)
+    ├── auth-service (Child)
+    ├── user-service (Child)
+    ├── transaction-service (Child)
+    └── balance-service (Child)
+    ```
+
+Version Management Hierarchy:
+    1. Spring Boot Parent POM (spring-boot-starter-parent:3.4.7)
+    2. Our Parent POM (split-group-parent:0.0.1-SNAPSHOT)
+    3. Individual Service POMs (inherit from parent)
+
+
+5. SPRING FRAMEWORK DEPENDENCIES
+--------------------------------
+
+Core Spring Dependencies:
+    - spring-boot-starter-web: Web applications and REST APIs
+    - spring-boot-starter-data-jpa: Database access and ORM
+    - spring-boot-starter-security: Authentication and authorization
+    - spring-boot-starter-validation: Request validation
+    - spring-boot-starter-actuator: Health checks and monitoring
+
+Spring Cloud Dependencies:
+    - spring-cloud-starter-netflix-eureka-server: Service discovery server
+    - spring-cloud-starter-netflix-eureka-client: Service discovery client
+    - spring-cloud-starter-gateway: API gateway functionality
+    - spring-cloud-starter-loadbalancer: Client-side load balancing
+
+Dependency Version Management:
+    ```xml
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>2024.0.1</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    ```
+
+
+6. THIRD-PARTY DEPENDENCIES
+---------------------------
+
+Database Dependencies:
+    - mysql-connector-j: 8.0+ (MySQL JDBC driver)
+    - Version: Managed by Spring Boot parent
+
+Security Dependencies:
+    - jjwt-api: 0.12.5 (JWT token API)
+    - jjwt-impl: 0.12.5 (JWT implementation)
+    - jjwt-jackson: 0.12.5 (JWT JSON processing)
+    - Reason: Latest stable JWT library for Java
+
+Documentation Dependencies:
+    - springdoc-openapi-starter-webmvc-ui: 2.6.0 (Swagger/OpenAPI)
+    - Reason: Latest Spring Boot 3 compatible version
+
+Testing Dependencies:
+    - spring-boot-starter-test: Includes JUnit 5, Mockito, AssertJ
+    - Version: Managed by Spring Boot parent
+
+
+7. VERSION COMPATIBILITY MATRIX
+-------------------------------
+
+Framework Compatibility:
+    Spring Boot 3.4.7 ←→ Spring Cloud 2024.0.1 ✓ Compatible
+    Spring Boot 3.5.x ←→ Spring Cloud 2024.0.1 ✗ Incompatible
+    Java 17 ←→ Spring Boot 3.4.7 ✓ Compatible
+    Java 21 ←→ Spring Boot 3.4.7 ✓ Compatible (but not needed)
+
+Database Compatibility:
+    MySQL 8.0+ ←→ mysql-connector-j (Spring Boot managed) ✓ Compatible
+    MySQL 5.7 ←→ mysql-connector-j ✓ Compatible (but older)
+
+JWT Compatibility:
+    JJWT 0.12.5 ←→ Java 17 ✓ Compatible
+    JJWT 0.12.5 ←→ Spring Security 6.x ✓ Compatible
+
+
+8. SERVICE-SPECIFIC DEPENDENCIES
+--------------------------------
+
+Eureka Server Dependencies:
+    - spring-cloud-starter-netflix-eureka-server
+    - Purpose: Provides service registry and discovery
+
+API Gateway Dependencies:
+    - spring-cloud-starter-gateway
+    - spring-cloud-starter-netflix-eureka-client
+    - Purpose: Request routing and service discovery
+
+Auth Service Dependencies:
+    - spring-boot-starter-web (REST API)
+    - spring-boot-starter-data-jpa (Database)
+    - spring-boot-starter-security (Authentication)
+    - spring-cloud-starter-netflix-eureka-client (Service discovery)
+    - mysql-connector-j (MySQL driver)
+    - jjwt-* (JWT processing)
+
+User Service Dependencies:
+    - spring-boot-starter-web
+    - spring-boot-starter-data-jpa
+    - spring-cloud-starter-netflix-eureka-client
+    - spring-cloud-starter-loadbalancer (Service calls)
+    - mysql-connector-j
+
+Transaction Service Dependencies:
+    - spring-boot-starter-web
+    - spring-boot-starter-data-jpa
+    - spring-cloud-starter-netflix-eureka-client
+    - spring-cloud-starter-loadbalancer
+    - mysql-connector-j
+
+Balance Service Dependencies:
+    - spring-boot-starter-web
+    - spring-boot-starter-data-jpa
+    - spring-cloud-starter-netflix-eureka-client
+    - spring-cloud-starter-loadbalancer
+    - mysql-connector-j
+
+
+9. DEPENDENCY RESOLUTION STRATEGY
+---------------------------------
+
+Version Conflicts Resolution:
+    1. Spring Boot parent POM takes precedence
+    2. Our parent POM overrides specific versions if needed
+    3. Child POMs should not specify versions (inherit from parent)
+
+Exclusion Strategy:
+    ```xml
+    <dependency>
+        <groupId>some.group</groupId>
+        <artifactId>some-artifact</artifactId>
+        <exclusions>
+            <exclusion>
+                <groupId>conflicting.group</groupId>
+                <artifactId>conflicting-artifact</artifactId>
+            </exclusion>
+        </exclusions>
+    </dependency>
+    ```
+
+Version Property Management:
+    ```xml
+    <properties>
+        <java.version>17</java.version>
+        <spring-cloud.version>2024.0.1</spring-cloud.version>
+        <jwt.version>0.12.5</jwt.version>
+    </properties>
+    ```
+
+
+10. API VERSIONING STRATEGY
+---------------------------
+
+Current API Version: v1
+Path Structure: /api/{service}/{version}/{resource}
+Example: /api/auth/v1/register
+
+Versioning Approach: URL Path Versioning
+Reason: Clear, explicit, easy to understand and implement
+
+Version Support Policy:
+    - Support current version (v1) and one previous version
+    - Deprecation notice: 6 months before removal
+    - Breaking changes require new major version
+
+Future Versioning Plan:
+    - v1.0: Current implementation
+    - v1.1: Minor features, backward compatible
+    - v2.0: Breaking changes (if needed)
+
+Header-based Versioning Alternative:
+    ```
+    Accept: application/vnd.splitgroup.v1+json
+    ```
+Not implemented yet, but possible future enhancement.
+
+
+11. MICROSERVICE VERSIONING
+---------------------------
+
+Service Version Independence:
+    - Each service can be versioned independently
+    - API contracts maintained for inter-service communication
+    - Backward compatibility required for dependent services
+
+Service Discovery Version:
+    - Services register with version metadata in Eureka
+    - Load balancer can route to specific versions
+    - Blue-green deployment support
+
+Service Contract Versioning:
+    - DTOs versioned with services
+    - Database schema changes handled per service
+    - Migration scripts per service version
+
+
+12. DATABASE VERSIONING
+-----------------------
+
+Schema Versioning Strategy:
+    - Flyway or Liquibase for schema migrations (future enhancement)
+    - Currently using JPA DDL auto-update
+    - Version-controlled migration scripts
+
+Schema Change Process:
+    1. Create migration script
+    2. Test on development database
+    3. Apply to staging environment
+    4. Deploy to production with rollback plan
+
+Backward Compatibility:
+    - Additive changes only (new columns, tables)
+    - Column removal requires multi-step process
+    - Data migration strategies for breaking changes
+
+
+13. UPGRADE STRATEGIES
+---------------------
+
+Spring Boot Upgrade Process:
+    1. Check Spring Cloud compatibility matrix
+    2. Update parent POM version
+    3. Test all services individually
+    4. Run integration tests
+    5. Update documentation
+
+Dependency Upgrade Process:
+    1. Check for security vulnerabilities
+    2. Review release notes for breaking changes
+    3. Update version in parent POM
+    4. Run full test suite
+    5. Monitor after deployment
+
+Major Version Upgrade Checklist:
+    □ Review breaking changes in release notes
+    □ Update all service configurations
+    □ Test inter-service communication
+    □ Verify database compatibility
+    □ Update API documentation
+    □ Plan rollback strategy
+
+
+14. VULNERABILITY MANAGEMENT
+----------------------------
+
+Security Scanning:
+    - Regular dependency vulnerability scanning
+    - Maven dependency:check plugin
+    - Update vulnerable dependencies promptly
+
+Security Update Policy:
+    - Critical vulnerabilities: Immediate update
+    - High vulnerabilities: Within 1 week
+    - Medium/Low vulnerabilities: Next release cycle
+
+Dependency Monitoring:
+    - Monitor security advisories for all dependencies
+    - Subscribe to Spring Security advisories
+    - Use tools like OWASP Dependency Check
+
+
+15. BUILD AND DEPLOYMENT VERSIONS
+---------------------------------
+
+Maven Build Profiles:
+    - development: Local development settings
+    - testing: Test environment configuration
+    - production: Production environment settings
+
+Build Version Tagging:
+    - Git tags for release versions
+    - Docker image tags match Git tags
+    - Build timestamp in artifact names
+
+Deployment Version Strategy:
+    - Rolling deployment for minor updates
+    - Blue-green deployment for major updates
+    - Database migration during maintenance windows
+
+
+16. VERSION MONITORING AND TRACKING
+-----------------------------------
+
+Version Information Endpoints:
+    - /actuator/info: Shows application version
+    - /actuator/health: Shows service health and version
+    - Custom endpoints for dependency versions
+
+Version Tracking Tools:
+    - Maven Versions Plugin: Check for updates
+    - Dependabot: Automated dependency updates
+    - OWASP Dependency Check: Security scanning
+
+Monitoring Strategy:
+    - Log service versions at startup
+    - Include version in error reports
+    - Track version performance metrics
+
+
+17. DEPENDENCY COMMANDS AND TOOLS
+---------------------------------
+
+Useful Maven Commands:
+    mvn dependency:tree                    # Show dependency tree
+    mvn dependency:analyze                 # Find unused dependencies
+    mvn versions:display-dependency-updates # Check for updates
+    mvn versions:use-latest-versions       # Update to latest versions
+
+Version Management Tools:
+    - Maven Versions Plugin
+    - Spring Boot Admin (monitoring)
+    - Actuator endpoints
+    - Custom version info endpoints
+
+Best Practices:
+    - Always test after version upgrades
+    - Keep detailed upgrade logs
+    - Maintain version compatibility documentation
+    - Plan rollback strategies for all upgrades

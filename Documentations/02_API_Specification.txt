@@ -1,0 +1,529 @@
+==========================================
+
+
+SPLIT GROUP MICROSERVICES
+API SPECIFICATION / CONTRACT DOCUMENT
+
+
+==========================================
+1. API OVERVIEW
+==========================================
+
+ARCHITECTURE:
+    - RESTful API design
+    - JSON request/response format
+    - JWT token authentication
+    - HTTP status codes for responses
+    - Consistent error response format
+
+AUTHENTICATION:
+    - JWT Bearer tokens
+    - Token expiration: 24 hours
+    - Header format: Authorization: Bearer <token>
+
+BASE URLS:
+    - API Gateway: http://localhost:8080
+    - Auth Service: http://localhost:8081
+    - User Service: http://localhost:8082
+    - Transaction Service: http://localhost:8083
+    - Balance Service: http://localhost:8084
+
+SWAGGER DOCUMENTATION:
+    - Auth Service: http://localhost:8081/swagger-ui.html
+    - User Service: http://localhost:8082/swagger-ui.html
+    - Transaction Service: http://localhost:8083/swagger-ui.html
+    - Balance Service: http://localhost:8084/swagger-ui.html
+
+
+==========================================
+2. AUTH SERVICE API
+==========================================
+Base Path: /api/auth
+
+2.1 USER REGISTRATION
+--------------------
+POST /api/auth/register
+
+Request Body:
+    {
+      "email": "string (required, valid email format)",
+      "password": "string (required, min 6 characters)",
+      "name": "string (required, 2-50 characters)"
+    }
+
+Response (201 Created):
+    {
+      "token": "string (JWT token)",
+      "email": "string",
+      "name": "string",
+      "userId": "number",
+      "message": "Authentication successful"
+    }
+
+Response (400 Bad Request):
+    {
+      "message": "Error description",
+      "timestamp": "ISO datetime"
+    }
+
+2.2 USER LOGIN
+--------------
+POST /api/auth/login
+
+Request Body:
+    {
+      "email": "string (required)",
+      "password": "string (required)"
+    }
+
+Response (200 OK):
+    {
+      "token": "string (JWT token)",
+      "email": "string",
+      "name": "string",
+      "userId": "number",
+      "message": "Authentication successful"
+    }
+
+Response (401 Unauthorized):
+    {
+      "message": "Invalid email or password",
+      "timestamp": "ISO datetime"
+    }
+
+2.3 TOKEN VALIDATION
+-------------------
+POST /api/auth/validate
+Content-Type: application/json
+
+Request Body:
+"jwt_token_string"
+
+Response (200 OK):
+    {
+      "token": "string",
+      "email": "string",
+      "name": "string",
+      "userId": "number",
+      "message": "Token valid"
+    }
+
+2.4 GET USER BY ID
+-----------------
+GET /api/auth/users/{id}
+
+Response (200 OK):
+    {
+      "id": "number",
+      "email": "string",
+      "password": null,
+      "name": "string",
+      "createdAt": "ISO datetime",
+      "updatedAt": "ISO datetime"
+    }
+
+
+==========================================
+3. USER SERVICE API
+==========================================
+Base Path: /api/users
+
+3.1 CREATE USER PROFILE
+-----------------------
+POST /api/users/profiles
+
+Request Body:
+    {
+      "userId": "number (required)",
+      "email": "string (required)",
+      "name": "string (required)"
+    }
+
+Response (201 Created):
+    {
+      "userId": "number",
+      "email": "string",
+      "name": "string",
+      "phone": null,
+      "bio": null,
+      "location": null,
+      "profileCompleted": false,
+      "createdAt": "ISO datetime"
+    }
+
+3.2 GET USER PROFILE
+--------------------
+GET /api/users/profiles/{userId}
+
+Response (200 OK):
+    {
+      "userId": "number",
+      "email": "string",
+      "name": "string",
+      "phone": "string",
+      "bio": "string",
+      "location": "string",
+      "profilePictureUrl": "string",
+      "dateOfBirth": "ISO datetime",
+      "notificationEnabled": "boolean",
+      "emailNotifications": "boolean",
+      "privacyLevel": "PUBLIC|FRIENDS_ONLY|PRIVATE",
+      "profileCompleted": "boolean",
+      "lastActive": "ISO datetime",
+      "createdAt": "ISO datetime",
+      "updatedAt": "ISO datetime"
+    }
+
+3.3 UPDATE USER PROFILE
+-----------------------
+PUT /api/users/profiles/{userId}
+Authorization: Bearer <token>
+
+Request Body:
+    {
+      "name": "string (optional)",
+      "phone": "string (optional, max 15 chars)",
+      "bio": "string (optional, max 500 chars)",
+      "location": "string (optional, max 100 chars)",
+      "profilePictureUrl": "string (optional)",
+      "dateOfBirth": "ISO datetime (optional)",
+      "notificationEnabled": "boolean (optional)",
+      "emailNotifications": "boolean (optional)",
+      "privacyLevel": "enum (optional)"
+    }
+
+Response (200 OK):
+{
+  // Updated profile object
+}
+
+3.4 SEARCH USERS
+----------------
+GET /api/users/search/email?q={email}
+GET /api/users/search/name?q={name}
+
+Response (200 OK):
+    [
+      {
+        "userId": "number",
+        "email": "string",
+        "name": "string",
+        // other profile fields
+      }
+    ]
+
+
+==========================================
+4. TRANSACTION SERVICE API
+==========================================
+Base Path: /api/transactions
+
+4.1 CREATE TRANSACTION
+----------------------
+POST /api/transactions/
+Authorization: Bearer <token>
+
+Request Body:
+    {
+      "paidBy": "number (required)",
+      "totalAmount": "decimal (required, > 0)",
+      "description": "string (required, max 500 chars)",
+      "category": "string (optional, max 100 chars)",
+      "splitType": "EQUAL|EXACT|PERCENTAGE",
+      "participants": [
+        {
+          "userId": "number (required)",
+          "amount": "decimal (for EXACT split)",
+          "percentage": "decimal (for PERCENTAGE split)"
+        }
+      ],
+      "transactionDate": "ISO datetime (optional)",
+      "groupId": "string (optional)",
+      "notes": "string (optional)"
+    }
+
+Response (201 Created):
+    [
+      {
+        "id": "number",
+        "paidBy": "number",
+        "paidByName": "string",
+        "owedBy": "number",
+        "owedByName": "string",
+        "amount": "decimal",
+        "description": "string",
+        "category": "string",
+        "totalAmount": "decimal",
+        "transactionDate": "ISO datetime",
+        "status": "ACTIVE|CANCELLED|SETTLED",
+        "splitType": "EQUAL|EXACT|PERCENTAGE",
+        "groupId": "string",
+        "createdAt": "ISO datetime"
+      }
+    ]
+
+4.2 GET TRANSACTION BY ID
+-------------------------
+GET /api/transactions/{transactionId}
+
+Response (200 OK):
+    {
+      // Single transaction object
+    }
+
+4.3 GET USER TRANSACTIONS
+-------------------------
+GET /api/transactions/user/{userId}
+
+Response (200 OK):
+    [
+      {
+        // Array of transaction objects
+      }
+    ]
+
+4.4 GET TRANSACTIONS BETWEEN USERS
+----------------------------------
+GET /api/transactions/between/{userId1}/{userId2}
+
+Response (200 OK):
+    [
+      {
+        // Array of transactions between two users
+      }
+    ]
+
+4.5 GET TRANSACTION SUMMARY
+---------------------------
+GET /api/transactions/summary/{userId}
+
+Response (200 OK):
+    {
+      "userId": "number",
+      "userName": "string",
+      "totalPaid": "decimal",
+      "totalOwed": "decimal",
+      "netBalance": "decimal",
+      "transactionCount": "number",
+      "lastTransactionDate": "ISO datetime"
+    }
+
+4.6 SEARCH TRANSACTIONS
+-----------------------
+GET /api/transactions/search?q={description}
+GET /api/transactions/category/{category}
+
+Response (200 OK):
+    [
+      {
+        // Array of matching transactions
+      }
+    ]
+
+
+==========================================
+5. BALANCE SERVICE API
+==========================================
+Base Path: /api/balances
+
+5.1 GET BALANCE BETWEEN USERS
+-----------------------------
+GET /api/balances/{userId1}/{userId2}
+
+Response (200 OK):
+    {
+      "balanceId": "string",
+      "user1": "number",
+      "user1Name": "string",
+      "user2": "number",
+      "user2Name": "string",
+      "amount": "decimal",
+      "description": "string (human readable)",
+      "isSettled": "boolean",
+      "transactionCount": "number",
+      "lastUpdated": "ISO datetime",
+      "createdAt": "ISO datetime"
+    }
+
+5.2 GET USER BALANCES
+---------------------
+GET /api/balances/user/{userId}
+
+Response (200 OK):
+    [
+      {
+        // Array of balance objects for user
+      }
+    ]
+
+5.3 CREATE SETTLEMENT
+---------------------
+POST /api/balances/settle
+Authorization: Bearer <token>
+
+Request Body:
+    {
+      "payerId": "number (required)",
+      "payeeId": "number (required)",
+      "amount": "decimal (required, > 0)",
+      "description": "string (optional, max 500 chars)",
+      "method": "CASH|BANK_TRANSFER|VENMO|PAYPAL|UPI|OTHER",
+      "settlementDate": "ISO datetime (optional)",
+      "notes": "string (optional)",
+      "referenceId": "string (optional)"
+    }
+
+Response (201 Created):
+    {
+      "id": "number",
+      "payerId": "number",
+      "payeeId": "number",
+      "amount": "decimal",
+      "description": "string",
+      "balanceId": "string",
+      "method": "enum",
+      "status": "PENDING|COMPLETED|CANCELLED|FAILED",
+      "settlementDate": "ISO datetime",
+      "createdBy": "number",
+      "referenceId": "string",
+      "notes": "string"
+    }
+
+5.4 GET USER BALANCE SUMMARY
+----------------------------
+GET /api/balances/summary/{userId}
+
+Response (200 OK):
+    {
+      "userId": "number",
+      "userName": "string",
+      "totalOwed": "decimal",
+      "totalOwedTo": "decimal",
+      "netBalance": "decimal",
+      "activeBalanceCount": "number",
+      "totalPaid": "decimal",
+      "totalReceived": "decimal"
+    }
+
+5.5 OPTIMIZE GROUP BALANCES
+---------------------------
+POST /api/balances/optimize
+
+Request Body:
+    {
+      "userIds": [1, 2, 3, 4]
+    }
+
+Response (200 OK):
+    {
+      "suggestedPayments": [
+        {
+          "fromUserId": "number",
+          "fromUserName": "string",
+          "toUserId": "number",
+          "toUserName": "string",
+          "amount": "decimal",
+          "description": "string"
+        }
+      ],
+      "totalOptimizedAmount": "decimal",
+      "originalTransactionCount": "number",
+      "optimizedTransactionCount": "number",
+      "optimizationSummary": "string"
+    }
+
+
+==========================================
+6. COMMON RESPONSE PATTERNS
+==========================================
+
+6.1 SUCCESS RESPONSES
+--------------------
+200 OK - Successful GET request
+201 Created - Successful POST request (resource created)
+204 No Content - Successful DELETE request
+
+6.2 ERROR RESPONSES
+------------------
+400 Bad Request - Invalid request data
+    {
+      "message": "Error description",
+      "timestamp": "ISO datetime"
+    }
+
+401 Unauthorized - Authentication required/failed
+    {
+      "message": "Authentication required",
+      "timestamp": "ISO datetime"
+    }
+
+403 Forbidden - Access denied
+    {
+      "message": "Access denied",
+      "timestamp": "ISO datetime"
+    }
+
+404 Not Found - Resource not found
+    {
+      "message": "Resource not found",
+      "timestamp": "ISO datetime"
+    }
+
+500 Internal Server Error - Server error
+    {
+      "message": "Internal server error",
+      "timestamp": "ISO datetime"
+    }
+
+
+==========================================
+7. HTTP STATUS CODES
+==========================================
+
+200 OK - Request successful
+201 Created - Resource created successfully
+204 No Content - Request successful, no content returned
+400 Bad Request - Invalid request data
+401 Unauthorized - Authentication failed
+403 Forbidden - Access denied
+404 Not Found - Resource not found
+409 Conflict - Resource conflict (duplicate email)
+422 Unprocessable Entity - Validation failed
+500 Internal Server Error - Server error
+
+
+==========================================
+8. API VERSIONING
+==========================================
+
+CURRENT VERSION: v1
+VERSION HEADER: API-Version: v1
+URL VERSIONING: /api/v1/auth/register (future)
+
+BACKWARD COMPATIBILITY:
+    - Existing endpoints remain functional
+    - New fields added as optional
+    - Deprecated endpoints marked clearly
+
+
+==========================================
+9. TESTING ENDPOINTS
+==========================================
+
+HEALTH CHECKS:
+GET /api/auth/health
+GET /api/users/health
+GET /api/transactions/health
+GET /api/balances/health
+
+SERVICE INFO:
+GET /api/auth/info
+GET /api/users/info
+GET /api/transactions/info
+GET /api/balances/info
+
+STATISTICS:
+GET /api/users/stats
+GET /api/transactions/stats
+GET /api/balances/stats
+

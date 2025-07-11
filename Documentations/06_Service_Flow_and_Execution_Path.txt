@@ -1,0 +1,405 @@
+SERVICE FLOW AND EXECUTION PATH
+================================
+
+1. APPLICATION STARTUP FLOW
+===========================
+
+1.1 Service Startup Sequence
+----------------------------
+    1. Eureka Server (8761)
+       └── Start first, wait for "Started EurekaServerApplication"
+
+    2. API Gateway (8080)
+       └── Start after Eureka is ready
+       └── Registers with Eureka
+       └── Loads routing configuration
+
+    3. Business Services (start in any order after Gateway)
+       ├── Auth Service (8081)
+       ├── User Service (8082)
+       ├── Transaction Service (8083)
+       └── Balance Service (8084)
+
+1.2 Individual Service Startup Flow
+-----------------------------------
+    Service Startup:
+    ├── Load application.yml configuration
+    ├── Initialize Spring Context
+    ├── Connect to MySQL database
+    ├── Create/update database tables (Hibernate DDL)
+    ├── Register with Eureka Server
+    ├── Start embedded Tomcat server
+    ├── Health check endpoints become available
+    └── Service ready to accept requests
+
+Example Console Output:
+    "🔐 Starting Authentication Service..."
+    "✅ Auth Service started successfully!"
+    "🌐 Service available at: http://localhost:8081"
+
+2. REQUEST PROCESSING FLOW
+==========================
+
+2.1 Client Request Journey
+--------------------------
+    Client Request
+        ↓
+    API Gateway (Port 8080)
+        ├── CORS handling
+        ├── Route matching (/api/auth/** → auth-service)
+        ├── Load balancing (if multiple instances)
+        └── Forward to target service
+        ↓
+    Target Service (e.g., Auth Service)
+        ├── Spring Security filter chain
+        ├── JWT token validation (if required)
+        ├── Controller method execution
+        ├── Service layer business logic
+        ├── Repository/Database operations
+        └── Response formation
+        ↓
+    Response back through Gateway
+        ↓
+    Client receives response
+
+2.2 Detailed Request Flow Example (User Registration)
+----------------------------------------------------
+    1. Client POST /api/auth/register
+       └── Body: {"email": "user@test.com", "password": "pass123", "name": "User"}
+
+    2. API Gateway Processing
+       └── Route: /api/auth/** → lb://auth-service
+       └── Strip prefix: /api/auth/register → /register
+       └── Forward to: http://auth-service-instance/register
+
+    3. Auth Service Processing
+       ├── AuthController.register() method invoked
+       ├── @Valid annotation triggers request validation
+       ├── AuthService.register() business logic
+       │   ├── Check if user already exists
+       │   ├── Encrypt password with BCrypt
+       │   ├── Save user to database
+       │   └── Generate JWT token
+       └── Return AuthResponse with token
+
+    4. Response Journey
+       └── AuthController returns ResponseEntity
+       └── Gateway forwards response to client
+       └── Client receives JWT token
+
+3. AUTHENTICATION FLOW
+======================
+
+3.1 User Registration Flow
+-------------------------
+    POST /api/auth/register
+        ↓
+    AuthController.register()
+        ↓
+    @Valid validation (email, password, name)
+        ↓
+    AuthService.register()
+        ├── userRepository.existsByEmail() → Check duplicates
+        ├── passwordEncoder.encode() → Hash password
+        ├── userRepository.save() → Save to database
+        ├── jwtService.generateToken() → Create JWT
+        └── return AuthResponse
+        ↓
+    HTTP 201 Created + JWT token
+
+3.2 User Login Flow
+------------------
+    POST /api/auth/login
+        ↓
+    AuthController.login()
+        ↓
+    AuthService.login()
+        ├── userRepository.findByEmail() → Find user
+        ├── passwordEncoder.matches() → Verify password
+        ├── jwtService.generateToken() → Create new JWT
+        └── return AuthResponse
+        ↓
+    HTTP 200 OK + JWT token
+
+3.3 Token Validation Flow
+-------------------------
+    Any Protected Endpoint Request
+        ↓
+    Extract "Authorization: Bearer <token>" header
+        ↓
+    authClientService.extractUserIdFromToken()
+        ├── Remove "Bearer " prefix
+        ├── Call authService.validateToken()
+        │   ├── jwtService.extractEmail()
+        │   ├── jwtService.extractUserId()
+        │   ├── jwtService.isTokenValid()
+        │   └── userRepository.findByEmail() → Verify user exists
+        └── Return userId for authorization
+
+4. TRANSACTION CREATION FLOW
+============================
+
+4.1 Complete Transaction Flow
+----------------------------
+POST /api/transactions/
+Authorization: Bearer <jwt-token>
+    Body: {transaction details}
+        ↓
+    API Gateway → Transaction Service
+        ↓
+    TransactionController.createTransaction()
+        ├── authClientService.extractUserIdFromToken() → Validate JWT
+        └── transactionService.createTransaction()
+            ├── validateTransactionRequest() → Business validation
+            ├── calculateShares() → Split amount based on type
+            ├── Create individual transaction records
+            ├── transactionRepository.saveAll() → Save to database
+            └── Call Balance Service to update balances
+                ↓
+                RestTemplate call to balance-service/update
+                ├── balanceService.updateBalance()
+                ├── Find or create Balance entity
+                ├── Update balance amount
+                └── balanceRepository.save()
+        ↓
+    Return List<TransactionResponse>
+
+4.2 Split Calculation Logic
+---------------------------
+EQUAL SPLIT:
+    totalAmount = ₹60, participants = 3
+    → Each person owes: ₹60 ÷ 3 = ₹20
+
+EXACT SPLIT:
+totalAmount = ₹60
+    → User1: ₹25, User2: ₹20, User3: ₹15
+    → Validation: ₹25 + ₹20 + ₹15 = ₹60 ✓
+
+PERCENTAGE SPLIT:
+    totalAmount = ₹60
+    → User1: 50%, User2: 30%, User3: 20%
+    → Amounts: ₹30, ₹18, ₹12
+    → Validation: 50% + 30% + 20% = 100% ✓
+
+5. BALANCE MANAGEMENT FLOW
+==========================
+
+5.1 Balance Update Flow (Called by Transaction Service)
+------------------------------------------------------
+    Transaction Created
+        ↓
+    transactionService.createTransaction()
+        ├── Save transaction to database
+        └── restTemplate.postForObject("http://balance-service/update", request)
+            ↓
+            BalanceController.updateBalance()
+            ↓
+            BalanceService.updateBalance()
+                ├── Create balanceId = "user1_user2" (sorted)
+                ├── Find existing balance or create new
+                ├── Calculate balance change based on who paid/owes
+                ├── Update balance amount
+                └── Save to database
+
+5.2 Balance Calculation Logic
+----------------------------
+    Example: User1 pays ₹30 for User2
+    balanceId = "1_2" (user1 < user2)
+    Current balance.amount = 0
+
+    Update logic:
+    - User1 paid for User2
+    - User2 now owes User1 ₹30
+    - balance.amount = -30 (negative means User2 owes User1)
+
+    From User1 perspective: getAmountForUser(1) = -30 (User1 is owed ₹30)
+    From User2 perspective: getAmountForUser(2) = +30 (User2 owes ₹30)
+
+5.3 Settlement Flow
+------------------
+POST /api/balances/settle
+    Body: {payerId: 2, payeeId: 1, amount: 30}
+        ↓
+    BalanceController.createSettlement()
+        ├── Validate JWT token
+        ├── validateSettlementRequest()
+        │   ├── Check if payer actually owes money
+        │   ├── Check if amount doesn't exceed debt
+        │   └── Validate minimum settlement amount
+        ├── Create Settlement entity
+        ├── settlementRepository.save()
+        └── updateBalanceFromSettlement()
+            ├── Find related balance
+            ├── Reduce balance amount by settlement amount
+            ├── Auto-settle if balance < threshold
+            └── Save updated balance
+
+6. SERVICE DISCOVERY FLOW
+=========================
+
+6.1 Service Registration
+-----------------------
+    Service Startup
+        ↓
+    @EnableDiscoveryClient annotation
+        ↓
+    Eureka Client Configuration
+        ├── service-url: http://localhost:8761/eureka/
+        ├── Application name from spring.application.name
+        └── Instance details (hostname, port, health URL)
+        ↓
+    Registration with Eureka Server
+        ├── Send POST to /eureka/apps/{app-name}
+        ├── Include instance metadata
+        └── Start sending heartbeats every 30 seconds
+
+6.2 Service Discovery
+---------------------
+    Service Call (e.g., Transaction → Balance)
+        ↓
+    RestTemplate with @LoadBalanced
+        ↓
+    URL: http://balance-service/update
+        ├── Eureka Client intercepts request
+        ├── Query Eureka for "balance-service" instances
+        ├── Get list of available instances
+        ├── Apply load balancing algorithm (round-robin)
+        └── Replace service name with actual IP:PORT
+        ↓
+    HTTP call to actual instance: http://192.168.1.100:8084/update
+
+7. DATABASE INTERACTION FLOW
+============================
+
+7.1 JPA Repository Flow
+----------------------
+    Service Method Call
+        ↓
+    Repository Interface Method
+        ↓
+    Spring Data JPA Implementation
+        ├── Query generation (if custom query)
+        ├── Parameter binding
+        └── JDBC execution
+        ↓
+    Hibernate ORM
+        ├── SQL query generation
+        ├── Connection pool management
+        ├── Transaction management
+        └── Result set mapping
+        ↓
+    MySQL Database
+        ├── Query execution
+        ├── Index usage
+        └── Result return
+        ↓
+    Entity objects returned to service
+
+7.2 Transaction Management
+-------------------------
+    @Transactional Method
+        ├── Begin database transaction
+        ├── Execute business logic
+        │   ├── Multiple repository calls
+        │   ├── All operations in same transaction
+        │   └── Rollback on any exception
+        ├── Commit transaction (if successful)
+        └── Return result
+
+8. ERROR HANDLING FLOW
+======================
+
+8.1 Exception Propagation
+-------------------------
+    Database Error
+        ↓
+    Repository throws DataAccessException
+        ↓
+    Service catches and wraps in BusinessException
+        ↓
+    Controller catches BusinessException
+        ↓
+    @ControllerAdvice GlobalExceptionHandler
+        ├── Map exception to HTTP status
+        ├── Create ErrorResponse object
+        └── Return ResponseEntity with error
+        ↓
+    API Gateway forwards error response
+        ↓
+    Client receives structured error
+
+8.2 Circuit Breaker Flow (Future Enhancement)
+--------------------------------------------
+    Service Call to External Service
+        ↓
+    Circuit Breaker State Check
+        ├── CLOSED: Normal operation, forward request
+        ├── OPEN: Fail fast, call fallback method
+        └── HALF_OPEN: Test with single request
+        ↓
+    Track success/failure rates
+        ├── Too many failures → Open circuit
+        ├── Successful requests → Close circuit
+        └── Timeout → Trigger fallback
+
+9. MONITORING AND HEALTH CHECKS
+===============================
+
+9.1 Health Check Flow
+--------------------
+    GET /actuator/health
+        ↓
+    Spring Boot Actuator
+        ├── Check database connectivity
+        ├── Check disk space
+        ├── Check external service dependencies
+        └── Aggregate health status
+        ↓
+    Return: {"status": "UP"} or {"status": "DOWN"}
+
+9.2 Metrics Collection
+---------------------
+    Request Processing
+        ├── Count requests per endpoint
+        ├── Measure response times
+        ├── Track error rates
+        └── Monitor JVM metrics (memory, threads)
+        ↓
+    Micrometer Metrics Registry
+        ↓
+    Export to monitoring systems (Prometheus, etc.)
+
+10. DEVELOPMENT WORKFLOW
+=======================
+
+10.1 Code Change Deployment
+---------------------------
+    Code Change
+        ↓
+    mvn clean install (Build)
+        ↓
+    Service Restart
+        ├── Graceful shutdown
+        ├── Deregister from Eureka
+        └── Start with new code
+        ↓
+    Health Check Verification
+        ↓
+    Service Ready for Traffic
+
+10.2 Testing Flow
+----------------
+    Unit Tests
+        ├── Mock dependencies
+        ├── Test business logic
+        └── Verify expected behavior
+        ↓
+    Integration Tests
+        ├── Test with real database
+        ├── Test service interactions
+        └── End-to-end scenarios
+        ↓
+    Manual Testing via Swagger UI
+        ├── Test individual endpoints
+        ├── Verify error handling
+        └── Test complete user journeys

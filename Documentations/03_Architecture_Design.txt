@@ -1,0 +1,621 @@
+==========================================
+
+
+SPLIT GROUP MICROSERVICES
+ARCHITECTURE AND DESIGN DOCUMENT
+
+
+==========================================
+1. ARCHITECTURE OVERVIEW
+==========================================
+
+ARCHITECTURE PATTERN: Microservices Architecture
+COMMUNICATION STYLE: Synchronous REST APIs
+SERVICE DISCOVERY: Netflix Eureka
+API GATEWAY: Spring Cloud Gateway
+AUTHENTICATION: JWT Tokens
+DATABASE STRATEGY: Database per Service
+
+HIGH-LEVEL ARCHITECTURE:
+            ┌─────────────────────────────────────────┐
+            │               CLIENTS                   │
+            │        (Web, Mobile, API)               │
+            └─────────────┬───────────────────────────┘
+                          │
+            ┌─────────────▼───────────────────────────┐
+            │          API GATEWAY (8080)             │
+            │       Single Entry Point                │
+            └─┬────────┬────────┬────────┬────────────┘
+              │        │        │        │
+              ▼        ▼        ▼        ▼
+            ┌─────┐ ┌─────┐  ┌─────┐   ┌─────┐
+            │AUTH │ │USER │  │ TXN │   │ BAL │
+            │8081 │ │8082 │  │8083 │   │8084 │
+            └─────┘ └─────┘  └─────┘   └─────┘
+              │        │        │         │
+              ▼        ▼        ▼         ▼
+        ┌─────────────────────────────────────────┐
+        │           MYSQL DATABASES               │
+        │  auth_db  user_db  txn_db  balance_db   │
+        └─────────────────────────────────────────┘
+
+EUREKA SERVER (8761) - Service Discovery
+All services register and discover each other
+
+
+==========================================
+2. MICROSERVICES BREAKDOWN
+==========================================
+
+2.1 EUREKA SERVER (8761)
+------------------------
+PURPOSE: Service Discovery and Registry
+RESPONSIBILITIES:
+    - Service registration and deregistration
+    - Health monitoring of services
+    - Load balancing information
+    - Service location discovery
+
+KEY FEATURES:
+    - Web dashboard for monitoring
+    - Self-preservation mode (disabled in dev)
+    - Heartbeat mechanism for health checks
+    - Client-side load balancing support
+
+CONFIGURATION:
+server.port: 8761
+eureka.client.register-with-eureka: false
+eureka.client.fetch-registry: false
+
+2.2 API GATEWAY (8080)
+---------------------
+PURPOSE: Single Entry Point and Request Routing
+RESPONSIBILITIES:
+    - Route client requests to appropriate services
+    - Load balancing across service instances
+    - CORS configuration for web clients
+    - Cross-cutting concerns (future: rate limiting, logging)
+
+ROUTING RULES:
+/api/auth/**     → auth-service
+/api/users/**    → user-service
+/api/transactions/** → transaction-service
+/api/balances/** → balance-service
+
+KEY FEATURES:
+    - Path-based routing with prefix stripping
+    - Service discovery integration
+    - Load balancing with lb:// protocol
+    - Global CORS configuration
+
+2.3 AUTH SERVICE (8081)
+----------------------
+PURPOSE: Authentication and Basic User Management
+RESPONSIBILITIES:
+    - User registration and login
+    - JWT token generation and validation
+    - Password encryption and verification
+    - Basic user information storage
+
+DATABASE: split_auth_db
+TABLES:
+    - users (id, email, password, name, created_at, updated_at)
+
+KEY COMPONENTS:
+    - AuthController: REST endpoints
+    - AuthService: Business logic
+    - JWTService: Token management
+    - UserRepository: Data access
+    - SecurityConfig: Spring Security configuration
+
+SECURITY FEATURES:
+    - BCrypt password hashing
+    - JWT token with HS512 signing
+    - Stateless authentication
+    - Input validation
+
+2.4 USER SERVICE (8082)
+----------------------
+PURPOSE: Extended User Profile Management
+RESPONSIBILITIES:
+    - User profile creation and updates
+    - User search and discovery
+    - Profile completion tracking
+    - Privacy settings management
+
+DATABASE: split_user_db
+TABLES:
+    - user_profiles (user_id, email, name, phone, bio, location, privacy_level, profile_completed, etc.)
+
+KEY COMPONENTS:
+    - UserController: Profile management endpoints
+    - UserService: Profile business logic
+    - UserProfileRepository: Extended profile data
+    - AuthClientService: Auth service integration
+
+FEATURES:
+    - Extended user information storage
+    - User search by email and name
+    - Privacy level controls
+    - Profile completion tracking
+
+2.5 TRANSACTION SERVICE (8083)
+-----------------------------
+PURPOSE: Expense Tracking and Bill Splitting
+RESPONSIBILITIES:
+    - Record shared expenses
+    - Calculate bill splits (equal/exact/percentage)
+    - Maintain transaction history
+    - Category-based expense organization
+
+DATABASE: split_transaction_db
+TABLES:
+    - transactions (id, paid_by, owed_by, amount, description, category, total_amount, split_type, status, etc.)
+
+KEY COMPONENTS:
+    - TransactionController: Expense endpoints
+    - TransactionService: Transaction business logic
+    - TransactionRepository: Complex queries and calculations
+    - Split calculation algorithms
+
+SPLIT TYPES:
+    - EQUAL: Amount / number of participants
+    - EXACT: Specific amounts for each participant
+    - PERCENTAGE: Percentage-based allocation
+
+BUSINESS RULES:
+    - Transaction amount must be > 0
+    - Payer must be included in participants
+    - Split amounts must sum to total (exact/percentage)
+    - Maximum 20 participants per transaction
+
+2.6 BALANCE SERVICE (8084)
+-------------------------
+PURPOSE: Balance Calculation and Settlement Management
+RESPONSIBILITIES:
+    - Calculate net balances between users
+    - Process debt settlements
+    - Balance optimization for groups
+    - Settlement history tracking
+
+DATABASE: split_balance_db
+TABLES:
+    - balances (balance_id, user1, user2, amount, last_updated, transaction_count)
+    - settlements (id, payer_id, payee_id, amount, method, status, settlement_date, reference_id)
+
+KEY COMPONENTS:
+    - BalanceController: Balance management endpoints
+    - BalanceService: Balance calculation logic
+    - BalanceRepository: Balance queries
+    - SettlementRepository: Settlement tracking
+    - Optimization algorithms
+
+BALANCE CALCULATION:
+    - Unique balance ID: "user1_user2" (ordered)
+    - Positive amount: user1 owes user2
+    - Negative amount: user2 owes user1
+    - Auto-settle amounts below threshold (0.01)
+
+OPTIMIZATION ALGORITHM:
+    1. Calculate net position for each user
+    2. Separate debtors and creditors
+    3. Match largest debtor with largest creditor
+    4. Create payment to settle smaller amount
+    5. Repeat until all balances settled
+
+
+==========================================
+3. COMMUNICATION PATTERNS
+==========================================
+
+3.1 SERVICE-TO-SERVICE COMMUNICATION
+-----------------------------------
+PROTOCOL: HTTP/REST
+CLIENT: RestTemplate with @LoadBalanced
+FORMAT: JSON
+DISCOVERY: Via Eureka service names
+
+COMMUNICATION FLOWS:
+Transaction Service → Balance Service (balance updates)
+Any Service → Auth Service (token validation)
+Any Service → User Service (user information)
+
+EXAMPLE:
+    @Autowired
+    @LoadBalanced
+    private RestTemplate restTemplate;
+
+    restTemplate.postForObject(
+        "http://balance-service/update",
+        balanceRequest,
+        Void.class
+    );
+
+3.2 CLIENT COMMUNICATION
+-----------------------
+PROTOCOL: HTTP/REST via API Gateway
+AUTHENTICATION: JWT Bearer tokens
+ERROR HANDLING: Consistent error response format
+CONTENT TYPE: application/json
+
+CLIENT FLOW:
+    1. Client → API Gateway → Service
+    2. JWT validation (if required)
+    3. Business logic processing
+    4. Response → API Gateway → Client
+
+3.3 DATABASE COMMUNICATION
+-------------------------
+PATTERN: Database per Service
+CONNECTION: MySQL with connection pooling
+ORM: Spring Data JPA with Hibernate
+TRANSACTIONS: Local transactions within services
+
+DATABASE INDEPENDENCE:
+    - Each service owns its data
+    - No direct database access between services
+    - Data sharing through APIs only
+    - Schema evolution independence
+
+
+==========================================
+4. DATA CONSISTENCY STRATEGY
+==========================================
+
+4.1 CONSISTENCY PATTERNS
+-----------------------
+LOCAL CONSISTENCY: ACID within each service
+EVENTUAL CONSISTENCY: Between services
+COMPENSATION: Manual rollback for failures
+
+EXAMPLES:
+    - Transaction created → Balance updated (eventually)
+    - User profile updated → Other services notified (eventually)
+    - Settlement processed → Balance reduced (immediately)
+
+4.2 HANDLING FAILURES
+--------------------
+STRATEGY: Retry with exponential backoff
+FALLBACK: Log errors for manual intervention
+MONITORING: Health checks and alerts
+
+FAILURE SCENARIOS:
+- Balance service unavailable during transaction creation
+  → Transaction saved, balance update queued
+- Auth service unavailable during validation
+  → Return appropriate error to client
+- Database connection lost
+  → Retry connection, fail gracefully
+
+
+==========================================
+5. SECURITY ARCHITECTURE
+==========================================
+
+5.1 AUTHENTICATION FLOW
+----------------------
+1. User provides credentials → Auth Service
+2. Auth Service validates credentials
+3. JWT token generated and returned
+4. Client includes token in subsequent requests
+5. Services validate token with Auth Service
+
+JWT TOKEN STRUCTURE:
+Header: {"alg": "HS512", "typ": "JWT"}
+Payload: {"sub": "email", "userId": 123, "name": "John", "exp": timestamp}
+Signature: HMACSHA512(base64(header) + base64(payload), secret)
+
+5.2 AUTHORIZATION LEVELS
+----------------------
+PUBLIC ENDPOINTS:
+    - User registration and login
+    - Health checks and service info
+    - Swagger documentation
+
+AUTHENTICATED ENDPOINTS:
+    - Create transactions and settlements
+    - Update user profiles
+    - Delete transactions
+
+OWNER-ONLY ENDPOINTS:
+    - Update own profile only
+    - Delete own transactions only
+
+5.3 SECURITY MEASURES
+--------------------
+PASSWORD SECURITY:
+    - BCrypt hashing with strength 12
+    - Minimum 6 character requirement
+    - No password returned in API responses
+
+TOKEN SECURITY:
+    - HS512 signing algorithm
+    - 24-hour expiration
+    - Server-side validation
+    - No sensitive data in payload
+
+INPUT VALIDATION:
+    - Bean validation annotations
+    - SQL injection prevention
+    - XSS protection
+    - Email format validation
+
+
+==========================================
+6. SCALABILITY DESIGN
+==========================================
+
+6.1 HORIZONTAL SCALING
+---------------------
+SERVICE SCALING:
+    - Each service can be scaled independently
+    - Load balancing via Eureka and RestTemplate
+    - Stateless design enables easy scaling
+
+DATABASE SCALING:
+    - Separate databases prevent bottlenecks
+    - Read replicas for read-heavy services
+    - Connection pooling for efficiency
+
+6.2 PERFORMANCE OPTIMIZATIONS
+----------------------------
+DATABASE:
+    - Proper indexing on frequently queried columns
+    - Pagination for large result sets
+    - Connection pooling for database connections
+    - Query optimization with JPA
+
+CACHING (Future Enhancement):
+    - Redis for frequently accessed data
+    - Application-level caching for user profiles
+    - Cache invalidation strategies
+
+API OPTIMIZATIONS:
+    - Async processing for non-critical operations
+    - Bulk operations for multiple records
+    - Minimal data transfer (only required fields)
+
+6.3 MONITORING AND HEALTH
+------------------------
+HEALTH CHECKS:
+    - Spring Boot Actuator endpoints
+    - Custom health indicators
+    - Database connectivity checks
+    - Service dependency checks
+
+METRICS (Future):
+    - Request/response times
+    - Error rates per service
+    - Database query performance
+    - Memory and CPU usage
+
+
+==========================================
+7. TECHNOLOGY STACK RATIONALE
+==========================================
+
+7.1 CORE TECHNOLOGIES
+--------------------
+JAVA 17:
+    - LTS version for stability
+    - Modern language features
+    - Enterprise support
+    - Spring Boot compatibility
+
+SPRING BOOT 3.4.7:
+    - Mature framework with excellent documentation
+    - Auto-configuration reduces boilerplate
+    - Production-ready features (Actuator)
+    - Large ecosystem and community
+
+SPRING CLOUD 2024.0.1:
+    - Microservices patterns implementation
+    - Service discovery with Eureka
+    - Load balancing and circuit breakers
+    - API Gateway capabilities
+
+MYSQL 8.0:
+    - ACID compliance for data consistency
+    - Excellent performance for transactional workloads
+    - JSON support for flexible data
+    - Mature tooling and monitoring
+
+7.2 SUPPORTING TECHNOLOGIES
+--------------------------
+JWT (JJWT):
+    - Stateless authentication
+    - Cross-service token validation
+    - Industry standard
+    - No server-side session storage
+
+MAVEN:
+    - Dependency management
+    - Multi-module project support
+    - Standardized build process
+    - Integration with IDEs
+
+SWAGGER/OPENAPI:
+    - Interactive API documentation
+    - Client SDK generation
+    - Testing interface
+    - Standard API specification
+
+
+==========================================
+7. DESIGN PATTERNS USED
+==========================================
+
+7.1 ARCHITECTURAL PATTERNS
+-------------------------
+MICROSERVICES PATTERN:
+    - Decomposition by business capability
+    - Database per service
+    - Independent deployment
+
+API GATEWAY PATTERN:
+    - Single entry point for clients
+    - Request routing and aggregation
+
+SERVICE DISCOVERY PATTERN:
+    - Dynamic service location
+    - Health monitoring
+    - Load balancing
+    - Fault tolerance
+
+7.2 APPLICATION PATTERNS
+-----------------------
+REPOSITORY PATTERN:
+    - Data access abstraction
+    - Separation of concerns
+    - Testability improvement
+    - Consistent data access
+
+DTO PATTERN:
+    - Data transfer between layers
+    - Encapsulation of data
+    - Version compatibility
+    - Security (password hiding)
+
+7.3 INTEGRATION PATTERNS
+-----------------------
+RESTFUL API PATTERN:
+    - Uniform interface
+    - Stateless communication
+    - Resource-based URLs
+    - HTTP method semantics
+
+REQUEST-RESPONSE PATTERN:
+    - Synchronous communication
+    - Simple error handling
+    - Immediate feedback
+    - Direct service calls
+
+CIRCUIT BREAKER PATTERN (Future):
+    - Fault tolerance
+    - Graceful degradation
+    - Quick failure detection
+    - System stability
+
+
+==========================================
+8. ERROR HANDLING STRATEGY
+==========================================
+
+8.1 ERROR CATEGORIES
+-------------------
+VALIDATION ERRORS (400):
+    - Invalid input data
+    - Missing required fields
+    - Format violations
+    - Business rule violations
+
+AUTHENTICATION ERRORS (401):
+    - Invalid credentials
+    - Expired tokens
+    - Missing authentication
+    - Token validation failures
+
+AUTHORIZATION ERRORS (403):
+    - Insufficient permissions
+    - Resource access denied
+    - Operation not allowed
+    - Privacy violations
+
+RESOURCE ERRORS (404):
+    - Entity not found
+    - Invalid identifiers
+    - Non-existent endpoints
+    - Deleted resources
+
+SYSTEM ERRORS (500):
+    - Database connection failures
+    - Service unavailability
+    - Unexpected exceptions
+    - Configuration errors
+
+8.2 ERROR RESPONSE FORMAT
+------------------------
+CONSISTENT ERROR STRUCTURE:
+    {
+      "message": "Human-readable error description",
+      "timestamp": "ISO 8601 datetime",
+      "status": "HTTP status code",
+      "error": "Error type"
+    }
+
+ERROR HANDLING FLOW:
+    1. Exception thrown in service layer
+    2. Global exception handler catches exception
+    3. Appropriate HTTP status code determined
+    4. Error response formatted consistently
+    5. Response returned to client
+
+8.3 LOGGING STRATEGY
+-------------------
+LOG LEVELS:
+    - ERROR: System errors, exceptions
+    - WARN: Business rule violations, recoverable errors
+    - INFO: Important business events, service starts
+    - DEBUG: Detailed execution information
+
+LOG STRUCTURE:
+[TIMESTAMP] [LEVEL] [SERVICE] [REQUEST-ID] Message
+
+CORRELATION:
+    - Request ID for tracing across services
+    - User ID for user-specific operations
+    - Transaction ID for business operations
+
+
+==========================================
+9. DEPLOYMENT ARCHITECTURE
+==========================================
+
+9.1 DEVELOPMENT ENVIRONMENT
+---------------------------
+COMPONENTS:
+    - Local MySQL database
+    - 6 Spring Boot applications
+    - IntelliJ IDEA for development
+    - Postman/Swagger for testing
+
+PORTS:
+    - 8761: Eureka Server
+    - 8080: API Gateway
+    - 8081: Auth Service
+    - 8082: User Service
+    - 8083: Transaction Service
+    - 8084: Balance Service
+
+DATABASE SETUP:
+    - 4 separate MySQL databases
+    - Local MySQL server on port 3306
+    - Database creation scripts
+    - Connection configuration per service
+
+9.2 PRODUCTION CONSIDERATIONS (Future)
+-------------------------------------
+CONTAINERIZATION:
+    - Docker containers for each service
+    - Docker Compose for orchestration
+    - Environment-specific configurations
+    - Image versioning and registry
+
+INFRASTRUCTURE:
+    - Load balancers for high availability
+    - Multiple instances per service
+    - Database clustering
+    - Monitoring and alerting
+
+SECURITY:
+    - HTTPS for all communications
+    - Environment-based configurations
+    - Secret management
+    - Network security
+
+SCALABILITY:
+    - Auto-scaling based on metrics
+    - Database read replicas
+    - CDN for static content
+    - Caching layers
+

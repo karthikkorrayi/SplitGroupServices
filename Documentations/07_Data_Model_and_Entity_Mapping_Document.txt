@@ -1,0 +1,319 @@
+================================================================================
+                    DATA MODEL AND ENTITY MAPPING DOCUMENT
+                           Split Group Application
+================================================================================
+
+1. OVERVIEW
+-----------
+This document explains how data is organized and connected across all services
+in the Split Group application. Each service has its own database, and they
+communicate through user IDs and service calls.
+
+2. DATABASE ARCHITECTURE
+------------------------
+Pattern Used: Database Per Service
+    - Each microservice has its own dedicated database
+    - Services communicate via APIs, not direct database access
+    - Data consistency maintained through eventual consistency pattern
+
+Databases:
+    - split_auth_db     (Auth Service)
+    - split_user_db     (User Service)
+    - split_transaction_db (Transaction Service)
+    - split_balance_db  (Balance Service)
+
+3. AUTH SERVICE DATA MODEL
+--------------------------
+Database: split_auth_db
+Primary Entity: User
+
+Table: users
+    +--------------+---------------+----------+-------------+
+    | Field        | Type          | Null     | Key         |
+    +--------------+---------------+----------+-------------+
+    | id           | BIGINT        | NO       | PRIMARY KEY |
+    | email        | VARCHAR(255)  | NO       | UNIQUE      |
+    | password     | VARCHAR(255)  | NO       |             |
+    | name         | VARCHAR(255)  | NO       |             |
+    | created_at   | TIMESTAMP     | YES      |             |
+    | updated_at   | TIMESTAMP     | YES      |             |
+    +--------------+---------------+----------+-------------+
+
+Purpose:
+    - Store basic user authentication information
+    - Generate and validate JWT tokens
+    - Provide user data to other services
+
+Relationships:
+    - User ID is used as foreign key in all other services
+    - One user can have multiple transactions
+    - One user can have multiple balances with other users
+
+4. USER SERVICE DATA MODEL
+--------------------------
+Database: split_user_db
+Primary Entity: UserProfile
+
+Table: user_profiles
+    +----------------------+---------------+----------+-------------+
+    | Field               | Type          | Null     | Key         |
+    +----------------------+---------------+----------+-------------+
+    | user_id             | BIGINT        | NO       | PRIMARY KEY |
+    | email               | VARCHAR(255)  | NO       |             |
+    | name                | VARCHAR(255)  | NO       |             |
+    | phone               | VARCHAR(15)   | YES      |             |
+    | bio                 | TEXT          | YES      |             |
+    | location            | VARCHAR(100)  | YES      |             |
+    | profile_picture_url | VARCHAR(500)  | YES      |             |
+    | date_of_birth       | DATETIME      | YES      |             |
+    | notification_enabled| BOOLEAN       | YES      |             |
+    | email_notifications | BOOLEAN       | YES      |             |
+    | privacy_level       | ENUM          | YES      |             |
+    | profile_completed   | BOOLEAN       | YES      |             |
+    | last_active         | DATETIME      | YES      |             |
+    | created_at          | DATETIME      | YES      |             |
+    | updated_at          | DATETIME      | YES      |             |
+    +----------------------+---------------+----------+-------------+
+
+Purpose:
+    - Store extended user information beyond basic auth
+    - Manage user preferences and settings
+    - Support user search and discovery
+
+Data Mapping:
+    - user_id maps to users.id in Auth Service
+    - email and name duplicated for performance (denormalized)
+    - privacy_level: PUBLIC, FRIENDS_ONLY, PRIVATE
+
+5. TRANSACTION SERVICE DATA MODEL
+---------------------------------
+Database: split_transaction_db
+Primary Entity: Transaction
+
+Table: transactions
+    +------------------+---------------+----------+-------------+
+    | Field           | Type          | Null     | Key         |
+    +------------------+---------------+----------+-------------+
+    | id              | BIGINT        | NO       | PRIMARY KEY |
+    | paid_by         | BIGINT        | NO       | INDEX       |
+    | owed_by         | BIGINT        | NO       | INDEX       |
+    | amount          | DECIMAL(10,2) | NO       |             |
+    | description     | VARCHAR(500)  | NO       |             |
+    | category        | VARCHAR(100)  | YES      |             |
+    | total_amount    | DECIMAL(10,2) | YES      |             |
+    | transaction_date| DATETIME      | YES      |             |
+    | created_by      | BIGINT        | YES      |             |
+    | group_id        | VARCHAR(100)  | YES      |             |
+    | status          | ENUM          | YES      |             |
+    | split_type      | ENUM          | YES      |             |
+    | created_at      | DATETIME      | YES      |             |
+    | updated_at      | DATETIME      | YES      |             |
+    | notes           | TEXT          | YES      |             |
+    +------------------+---------------+----------+-------------+
+
+Purpose:
+    - Record individual transaction entries (who owes what to whom)
+    - Support different splitting methods
+    - Maintain transaction history
+
+Data Mapping:
+    - paid_by, owed_by, created_by map to users.id in Auth Service
+    - One expense creates multiple transaction records (one per participant)
+    - group_id links related transactions from same expense
+
+Enums:
+    - status: ACTIVE, CANCELLED, SETTLED
+    - split_type: EQUAL, EXACT, PERCENTAGE
+
+Example Transaction Records for 60 dinner split between User 1 and User 2:
+Record 1: paid_by=1, owed_by=1, amount=30.00 (User 1's share)
+Record 2: paid_by=1, owed_by=2, amount=30.00 (User 2's share)
+
+
+6. BALANCE SERVICE DATA MODEL
+-----------------------------
+Database: split_balance_db
+Primary Entities: Balance, Settlement
+
+Table: balances
+    +--------------------+---------------+----------+-------------+
+    | Field             | Type          | Null     | Key         |
+    +--------------------+---------------+----------+-------------+
+    | balance_id        | VARCHAR(50)   | NO       | PRIMARY KEY |
+    | user1             | BIGINT        | NO       | INDEX       |
+    | user2             | BIGINT        | NO       | INDEX       |
+    | amount            | DECIMAL(10,2) | NO       |             |
+    | last_updated      | DATETIME      | YES      |             |
+    | created_at        | DATETIME      | YES      |             |
+    | transaction_count | BIGINT        | YES      |             |
+    | last_transaction_id| BIGINT       | YES      |             |
+    +--------------------+---------------+----------+-------------+
+
+Table: settlements
+    +------------------+---------------+----------+-------------+
+    | Field           | Type          | Null     | Key         |
+    +------------------+---------------+----------+-------------+
+    | id              | BIGINT        | NO       | PRIMARY KEY |
+    | payer_id        | BIGINT        | NO       | INDEX       |
+    | payee_id        | BIGINT        | NO       | INDEX       |
+    | amount          | DECIMAL(10,2) | NO       |             |
+    | description     | VARCHAR(500)  | YES      |             |
+    | balance_id      | VARCHAR(50)   | YES      |             |
+    | settlement_date | DATETIME      | YES      |             |
+    | created_by      | BIGINT        | YES      |             |
+    | method          | ENUM          | YES      |             |
+    | status          | ENUM          | YES      |             |
+    | created_at      | DATETIME      | YES      |             |
+    | updated_at      | DATETIME      | YES      |             |
+    | notes           | TEXT          | YES      |             |
+    | reference_id    | VARCHAR(100)  | YES      |             |
+    +------------------+---------------+----------+-------------+
+
+Purpose:
+    - Track net balances between user pairs
+    - Record settlements/payments between users
+    - Optimize group payment suggestions
+
+Data Mapping:
+    - balance_id format: "1_2" (always lower_user_id + "_" + higher_user_id)
+    - user1, user2, payer_id, payee_id map to users.id in Auth Service
+    - amount: positive = user1 owes user2, negative = user2 owes user1
+
+Settlement Enums:
+    - method: CASH, BANK_TRANSFER, VENMO, PAYPAL, UPI, OTHER
+    - status: PENDING, COMPLETED, CANCELLED, FAILED
+
+
+7. CROSS-SERVICE DATA RELATIONSHIPS
+-----------------------------------
+
+User Data Flow:
+    Auth Service (users)
+        ↓ user_id
+    User Service (user_profiles)
+        ↓ user_id
+    Transaction Service (transactions.paid_by, owed_by, created_by)
+        ↓ balance updates
+    Balance Service (balances.user1, user2, settlements.payer_id, payee_id)
+
+Transaction to Balance Flow:
+    1. Transaction created with paid_by=1, owed_by=2, amount=30.00
+    2. Balance Service receives update request
+    3. Balance calculated: User 2 owes User 1 - 30
+    4. Balance record updated/created with balance_id="1_2", amount=-30.00
+
+Settlement Flow:
+    1. User 2 pays User 1 - 30 via Venmo
+    2. Settlement record created: payer_id=2, payee_id=1, amount=30.00
+    3. Balance updated: amount changes from -30.00 to 0.00 (settled)
+
+
+8. DATA CONSISTENCY PATTERNS
+----------------------------
+
+Eventual Consistency:
+    - Transaction Service creates transaction records immediately
+    - Balance Service updates balances asynchronously
+    - If balance update fails, transaction remains but balance may be inconsistent
+
+Data Synchronization:
+    - User name changes in Auth Service don't automatically update other services
+    - Services call Auth Service when they need current user information
+    - Email and name duplicated in User Service for performance
+
+Compensation Patterns:
+    - If balance update fails after transaction creation, log error for manual review
+    - Settlement failures can be retried or manually corrected
+    - Transaction cancellation should trigger balance recalculation
+
+
+9. INDEXING STRATEGY
+-------------------
+
+Auth Service Indexes:
+    - PRIMARY KEY (id)
+    - UNIQUE INDEX (email)
+    - INDEX (created_at) for reporting
+
+User Service Indexes:
+    - PRIMARY KEY (user_id)
+    - INDEX (email) for search
+    - INDEX (location) for location-based queries
+
+Transaction Service Indexes:
+    - PRIMARY KEY (id)
+    - INDEX (paid_by) for user transaction history
+    - INDEX (owed_by) for user transaction history
+    - INDEX (transaction_date) for date-based queries
+    - INDEX (category) for category filtering
+    - INDEX (group_id) for grouped transactions
+
+Balance Service Indexes:
+    - PRIMARY KEY (balance_id)
+    - INDEX (user1) for user balance queries
+    - INDEX (user2) for user balance queries
+    - INDEX (payer_id) for settlement history
+    - INDEX (payee_id) for settlement history
+
+
+10. DATA MIGRATION CONSIDERATIONS
+---------------------------------
+
+Adding New Fields:
+    - Use nullable columns for new optional fields
+    - Provide default values where appropriate
+    - Update API contracts gradually
+
+Service Schema Changes:
+    - Each service can update its schema independently
+    - Maintain backward compatibility in API responses
+    - Use API versioning for breaking changes
+
+Cross-Service Impact:
+    - Changes to user_id should be coordinated across all services
+    - Email/name changes in Auth Service may require updates in User Service
+    - Balance calculation logic changes affect historical data
+
+
+11. EXAMPLE DATA FLOWS
+---------------------
+
+Complete User Journey:
+1. User Registration:
+   Auth DB: INSERT INTO users (email, password, name)
+   User DB: INSERT INTO user_profiles (user_id, email, name)
+
+2. Create Expense:
+   Transaction DB: INSERT INTO transactions (multiple records)
+   Balance DB: UPDATE/INSERT balances (calculate net amounts)
+
+3. Settlement:
+   Balance DB: INSERT INTO settlements
+   Balance DB: UPDATE balances (reduce amounts)
+
+Data Relationships Example:
+User 1 (karthii) owes User 2 (pranay) 50 from multiple transactions:
+    - Transaction 1: karthii paid 60 dinner, pranay owes 30
+    - Transaction 2: pranay paid 80 groceries, karthii owes 40
+    - Net: karthii owes pranay10
+    - Balance record: balance_id="1_2", amount=10.00
+
+
+12. PERFORMANCE CONSIDERATIONS
+-----------------------------
+
+Query Optimization:
+    - Use appropriate indexes for frequent queries
+    - Limit result sets with pagination
+    - Avoid N+1 query problems in service calls
+
+Caching Strategy:
+    - Cache user information in each service
+    - Cache frequently accessed balance information
+    - Invalidate cache when underlying data changes
+
+Database Connections:
+    - Use connection pooling in each service
+    - Configure appropriate pool sizes
+    - Monitor connection usage and timeouts
+

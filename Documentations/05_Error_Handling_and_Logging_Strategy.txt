@@ -1,0 +1,254 @@
+ERROR HANDLING AND LOGGING STRATEGY
+=======================================
+
+1. ERROR HANDLING STRATEGY
+==========================
+
+1.1 Exception Hierarchy
+-----------------------
+    - RuntimeException (Base for business logic errors)
+      ├── AuthenticationException (Login/token issues)
+      ├── AuthorizationException (Permission issues)
+      ├── ValidationException (Input validation errors)
+      ├── ResourceNotFoundException (Data not found)
+      └── BusinessLogicException (Custom business rules)
+
+1.2 Global Exception Handler
+----------------------------
+    @ControllerAdvice
+    public class GlobalExceptionHandler {
+
+        @ExceptionHandler(AuthenticationException.class)
+        public ResponseEntity<ErrorResponse> handleAuth(AuthenticationException ex) {
+            return ResponseEntity.status(401).body(new ErrorResponse(ex.getMessage()));
+        }
+
+        @ExceptionHandler(ValidationException.class)
+        public ResponseEntity<ErrorResponse> handleValidation(ValidationException ex) {
+            return ResponseEntity.status(400).body(new ErrorResponse(ex.getMessage()));
+        }
+    }
+
+1.3 Error Response Format
+-------------------------
+    {
+        "timestamp": "2024-07-10T16:30:00",
+        "status": 400,
+        "error": "Bad Request",
+        "message": "Email is required",
+        "path": "/api/auth/register",
+        "requestId": "abc-123-def"
+    }
+
+1.4 Service-Specific Error Handling
+-----------------------------------
+
+AUTH SERVICE:
+    - Invalid credentials → 401 Unauthorized
+    - User already exists → 409 Conflict
+    - Token expired → 401 Unauthorized
+    - Invalid token format → 400 Bad Request
+
+USER SERVICE:
+    - Profile not found → 404 Not Found
+    - Unauthorized profile access → 403 Forbidden
+    - Invalid profile data → 400 Bad Request
+
+TRANSACTION SERVICE:
+    - Invalid split amounts → 400 Bad Request
+    - User not authorized → 403 Forbidden
+    - Transaction not found → 404 Not Found
+    - Amount exceeds limit → 400 Bad Request
+
+BALANCE SERVICE:
+    - Settlement exceeds debt → 400 Bad Request
+    - Balance not found → 404 Not Found
+    - Invalid settlement data → 400 Bad Request
+
+1.5 Circuit Breaker Pattern (Future)
+------------------------------------
+    @CircuitBreaker(name = "balance-service", fallbackMethod = "fallbackBalance")
+    public void updateBalance(BalanceRequest request) {
+        // Call balance service
+    }
+
+    public void fallbackBalance(BalanceRequest request, Exception ex) {
+        // Log error and queue for retry
+        log.error("Balance service unavailable, queuing request: {}", request);
+    }
+
+2. LOGGING STRATEGY
+==================
+
+2.1 Logging Levels
+------------------
+    - ERROR: System errors, exceptions, critical issues
+    - WARN: Potential problems, deprecated usage, performance issues
+    - INFO: Important business events, service startup/shutdown
+    - DEBUG: Detailed application flow, SQL queries
+    - TRACE: Very detailed debugging information
+
+2.2 Logging Configuration (application.yml)
+-------------------------------------------
+    logging:
+      level:
+        com.service.auth: DEBUG          # Our application logs
+        org.springframework.security: DEBUG  # Security logs
+        org.hibernate.SQL: DEBUG        # SQL queries
+        org.springframework.web: INFO   # Web request logs
+        root: INFO                      # Default level
+
+      pattern:
+        console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+        file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+      file:
+        name: logs/auth-service.log
+        max-size: 10MB
+        max-history: 30
+
+2.3 Structured Logging Examples
+-------------------------------
+
+    CONTROLLER LEVEL:
+    @PostMapping("/register")
+    public ResponseEntity<AuthResponse> register(@RequestBody RegisterRequest request) {
+        log.info("User registration attempt for email: {}", request.getEmail());
+
+        try {
+            AuthResponse response = authService.register(request);
+            log.info("User registration successful for email: {}, userId: {}",
+                    request.getEmail(), response.getUserId());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("User registration failed for email: {}, error: {}",
+                    request.getEmail(), e.getMessage(), e);
+            throw e;
+        }
+    }
+
+    SERVICE LEVEL:
+    public TransactionResponse createTransaction(TransactionRequest request, Long userId) {
+        log.debug("Creating transaction: paidBy={}, amount={}, participants={}",
+                 request.getPaidBy(), request.getTotalAmount(), request.getParticipants().size());
+
+        // Business logic
+
+        log.info("Transaction created successfully: id={}, amount={}",
+                 transaction.getId(), transaction.getTotalAmount());
+    }
+
+2.4 Security Logging
+--------------------
+    - Never log passwords or sensitive data
+    - Log authentication attempts (success/failure)
+    - Log authorization violations
+    - Log suspicious activities
+
+Example:
+    log.info("Login attempt for user: {}", email);  // Good
+    log.info("Login attempt: {} / {}", email, password);  // BAD - Never do this
+
+2.5 Performance Logging
+-----------------------
+    @Around("@annotation(Timed)")
+    public Object logExecutionTime(ProceedingJoinPoint joinPoint) throws Throwable {
+        long startTime = System.currentTimeMillis();
+        Object result = joinPoint.proceed();
+        long endTime = System.currentTimeMillis();
+
+        log.info("Method {} executed in {} ms",
+                 joinPoint.getSignature().getName(), (endTime - startTime));
+        return result;
+    }
+
+2.6 Correlation IDs for Tracing
+-------------------------------
+    @Component
+    public class CorrelationInterceptor implements HandlerInterceptor {
+        @Override
+        public boolean preHandle(HttpServletRequest request,
+                               HttpServletResponse response, Object handler) {
+            String correlationId = UUID.randomUUID().toString();
+            MDC.put("correlationId", correlationId);
+            response.setHeader("X-Correlation-ID", correlationId);
+            return true;
+        }
+    }
+
+2.7 Log Monitoring and Alerts
+-----------------------------
+    - ERROR level logs → Immediate alerts
+    - High frequency WARN logs → Monitoring alerts
+    - Performance degradation → Automated alerts
+    - Failed authentication attempts → Security alerts
+
+3. BEST PRACTICES
+================
+
+3.1 Error Handling Best Practices
+---------------------------------
+    1. Always handle exceptions gracefully
+    2. Return meaningful error messages to clients
+    3. Never expose internal system details
+    4. Use proper HTTP status codes
+    5. Implement retry mechanisms for transient failures
+    6. Log all errors with sufficient context
+
+3.2 Logging Best Practices
+--------------------------
+    1. Use structured logging (JSON format in production)
+    2. Include correlation IDs for request tracing
+    3. Never log sensitive information
+    4. Use appropriate log levels
+    5. Include enough context for debugging
+    6. Monitor log volume and performance impact
+    7. Implement log rotation and archival
+
+3.3 Monitoring and Alerting
+---------------------------
+    1. Set up alerts for ERROR logs
+    2. Monitor response times and error rates
+    3. Track business metrics (registrations, transactions)
+    4. Implement health checks for all services
+    5. Use distributed tracing for complex workflows
+
+4. TROUBLESHOOTING GUIDE
+=======================
+
+4.1 Common Issues and Solutions
+-------------------------------
+    Issue: "Service not found in Eureka"
+    Solution: Check service registration and Eureka configuration
+
+    Issue: "JWT token validation failed"
+    Solution: Verify token format, expiration, and secret key
+
+    Issue: "Database connection failed"
+    Solution: Check database URL, credentials, and connection pool
+
+    Issue: "Balance calculation incorrect"
+    Solution: Check transaction data and balance update logic
+
+4.2 Debug Steps
+---------------
+    1. Check service logs for errors
+    2. Verify service registration in Eureka
+    3. Test service endpoints individually
+    4. Check database connections and data
+    5. Verify inter-service communication
+    6. Review configuration files
+
+4.3 Log Analysis Commands
+------------------------
+# Find errors in last hour
+grep "ERROR" auth-service.log | grep "$(date +%Y-%m-%d\ %H)"
+
+# Count specific errors
+grep "Authentication failed" auth-service.log | wc -l
+
+# Monitor logs in real-time
+tail -f auth-service.log | grep -E "(ERROR|WARN)"
+
+# Find correlation ID across services
+grep "correlation-id-123" */logs/*.log
