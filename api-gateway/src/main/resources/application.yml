@@ -1,0 +1,96 @@
+# API Gateway Configuration
+server:
+  port: 8080  # Single entry point for all microservices
+
+spring:
+  application:
+    name: api-gateway
+
+  # Spring Cloud Gateway Configuration
+  cloud:
+    gateway:
+      # Enable service discovery integration
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+
+      # Route Configuration - Define how requests are routed
+      routes:
+        # Auth Service Routes
+        - id: auth-service
+          uri: lb://auth-service  # lb = load balancer, auth-service = service name in Eureka
+          predicates:
+            - Path=/api/auth/**   # Any request to /api/auth/* goes to auth-service
+          filters:
+            - StripPrefix=2       # Remove /api/auth from the path before forwarding
+
+        # User Service Routes
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/users/**
+          filters:
+            - StripPrefix=2
+
+        # Transaction Service Routes
+        - id: transaction-service
+          uri: lb://transaction-service
+          predicates:
+            - Path=/api/transactions/**
+          filters:
+            - StripPrefix=2
+
+        # Balance Service Routes
+        - id: balance-service
+          uri: lb://balance-service
+          predicates:
+            - Path=/api/balances/**
+          filters:
+            - StripPrefix=2
+
+      # Global CORS Configuration
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:3000"  # React app
+              - "http://localhost:4200"  # Angular app
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+
+# Eureka Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 10
+
+# Logging Configuration
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.cloud.loadbalancer: DEBUG
+    com.service.gateway: DEBUG
+
+# Management Endpoints (for monitoring)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
