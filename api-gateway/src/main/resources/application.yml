@@ -1,71 +1,45 @@
-# API Gateway Configuration
 server:
-  port: 8080  # Single entry point for all microservices
+  port: 8080
 
 spring:
   application:
     name: api-gateway
-
-  # Spring Cloud Gateway Configuration
   cloud:
     gateway:
-      # Enable service discovery integration
-      discovery:
-        locator:
-          enabled: true
-          lower-case-service-id: true
-
-      # Route Configuration - Define how requests are routed
       routes:
         # Auth Service Routes
-        - id: auth-service
-          uri: lb://auth-service  # lb = load balancer, auth-service = service name in Eureka
+        - id: auth-service-route
+          uri: http://localhost:8081
           predicates:
-            - Path=/api/auth/**   # Any request to /api/auth/* goes to auth-service
+            - Path=/api/auth/**
           filters:
-            - StripPrefix=2       # Remove /api/auth from the path before forwarding
+            - StripPrefix=2
 
         # User Service Routes
-        - id: user-service
-          uri: lb://user-service
+        - id: user-service-route
+          uri: http://localhost:8082
           predicates:
             - Path=/api/users/**
           filters:
             - StripPrefix=2
 
         # Transaction Service Routes
-        - id: transaction-service
-          uri: lb://transaction-service
+        - id: transaction-service-route
+          uri: http://localhost:8083
           predicates:
             - Path=/api/transactions/**
           filters:
             - StripPrefix=2
 
         # Balance Service Routes
-        - id: balance-service
-          uri: lb://balance-service
+        - id: balance-service-route
+          uri: http://localhost:8084
           predicates:
             - Path=/api/balances/**
           filters:
             - StripPrefix=2
 
-      # Global CORS Configuration
-      globalcors:
-        cors-configurations:
-          '[/**]':
-            allowedOrigins:
-              - "http://localhost:3000"  # React app
-              - "http://localhost:4200"  # Angular app
-            allowedMethods:
-              - GET
-              - POST
-              - PUT
-              - DELETE
-              - OPTIONS
-            allowedHeaders: "*"
-            allowCredentials: true
-
-# Eureka Configuration
+# Eureka Configuration (for registration only)
 eureka:
   client:
     service-url:
@@ -74,21 +48,19 @@ eureka:
     register-with-eureka: true
   instance:
     prefer-ip-address: true
-    lease-renewal-interval-in-seconds: 10
 
 # Logging Configuration
 logging:
   level:
     org.springframework.cloud.gateway: DEBUG
-    org.springframework.cloud.loadbalancer: DEBUG
-    com.service.gateway: DEBUG
+    org.springframework.web: DEBUG
 
-# Management Endpoints (for monitoring)
+# Management Endpoints
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,gateway
+        include: health,info,gateway,routes
   endpoint:
     health:
       show-details: always
