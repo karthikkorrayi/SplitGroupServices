@@ -180,7 +180,7 @@ Data Mapping:
     - amount: positive = user1 owes user2, negative = user2 owes user1
 
 Settlement Enums:
-    - method: CASH, BANK_TRANSFER, VENMO, PAYPAL, UPI, OTHER
+    - method: CASH, BANK_TRANSFER, Phonepay, PAYPAL, UPI, OTHER
     - status: PENDING, COMPLETED, CANCELLED, FAILED
 
 
@@ -203,7 +203,7 @@ Transaction to Balance Flow:
     4. Balance record updated/created with balance_id="1_2", amount=-30.00
 
 Settlement Flow:
-    1. User 2 pays User 1 - 30 via Venmo
+    1. User 2 pays User 1 - 30 via Phonepay
     2. Settlement record created: payer_id=2, payee_id=1, amount=30.00
     3. Balance updated: amount changes from -30.00 to 0.00 (settled)
 

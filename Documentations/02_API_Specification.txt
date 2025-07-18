@@ -367,7 +367,7 @@ Request Body:
       "payeeId": "number (required)",
       "amount": "decimal (required, > 0)",
       "description": "string (optional, max 500 chars)",
-      "method": "CASH|BANK_TRANSFER|VENMO|PAYPAL|UPI|OTHER",
+      "method": "CASH|BANK_TRANSFER|Phonepay|PAYPAL|UPI|OTHER",
       "settlementDate": "ISO datetime (optional)",
       "notes": "string (optional)",
       "referenceId": "string (optional)"

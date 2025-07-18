@@ -305,7 +305,7 @@ Content-Type: application/json
   "payeeId": 2,
   "amount": 10.00,
   "description": "Settling dinner expenses",
-  "method": "VENMO"
+  "method": "Phonepay"
 }
 ```
 
@@ -465,7 +465,7 @@ Authorization: Bearer pranay_TOKEN
   "payeeId": 1,
   "amount": 20.00,
   "description": "Settling our expenses",
-  "method": "VENMO"
+  "method": "Phonepay"
 }
 ```
 

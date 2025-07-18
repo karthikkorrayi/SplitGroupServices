@@ -298,7 +298,7 @@ settlements (
   balance_id VARCHAR(50),
   settlement_date DATETIME,
   created_by BIGINT,
-  method ENUM('CASH', 'BANK_TRANSFER', 'VENMO', 'PAYPAL', 'UPI', 'OTHER'),
+  method ENUM('CASH', 'BANK_TRANSFER', 'Phonepay', 'PAYPAL', 'UPI', 'OTHER'),
   status ENUM('PENDING', 'COMPLETED', 'CANCELLED', 'FAILED'),
   created_at TIMESTAMP,
   updated_at TIMESTAMP,
@@ -650,7 +650,7 @@ Response:
 
 ### 3. Settlement Processing
 
-**Scenario**: adi pays pranay ₹20 via Venmo
+**Scenario**: adi pays pranay ₹20 via Phonepay
 
 ```
 Step 1: Create Settlement
@@ -660,8 +660,8 @@ POST /api/balances/settle
   "payeeId": 2,         // pranay
   "amount": 20.00,
   "description": "Dinner settlement",
-  "method": "VENMO",
-  "referenceId": "venmo-12345"
+  "method": "Phonepay",
+  "referenceId": "Phonepay-12345"
 }
 
 Step 2: Balance Service Processing
@@ -671,7 +671,7 @@ Step 2: Balance Service Processing
 - If balance becomes ≤ ₹0.01, mark as settled
 
 Step 3: Final State
-- Settlement recorded with Venmo reference
+- Settlement recorded with Phonepay reference
 - Balance updated automatically
 - Both users can see settlement history
 ```
@@ -784,7 +784,7 @@ CREATE TABLE settlements (
     balance_id VARCHAR(50),             -- Reference to balance
     settlement_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by BIGINT,
-    method ENUM('CASH', 'BANK_TRANSFER', 'VENMO', 'PAYPAL', 'UPI', 'OTHER') DEFAULT 'CASH',
+    method ENUM('CASH', 'BANK_TRANSFER', 'Phonepay', 'PAYPAL', 'UPI', 'OTHER') DEFAULT 'CASH',
     status ENUM('PENDING', 'COMPLETED', 'CANCELLED', 'FAILED') DEFAULT 'COMPLETED',
     notes TEXT,
     reference_id VARCHAR(100),          -- External payment reference

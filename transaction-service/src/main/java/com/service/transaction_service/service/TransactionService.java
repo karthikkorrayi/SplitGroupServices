@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -27,6 +28,12 @@ public class TransactionService {
 
     @Autowired
     private AuthClientService authClientService;
+
+    // RestTemplate for Balance Service communication
+    @Autowired
+    private RestTemplate restTemplate;
+
+    private static final String BALANCE_SERVICE_URL = "http://balance-service";
 
     @Value("${transaction.rules.max-amount:100000.00}")
     private BigDecimal maxTransactionAmount;
@@ -69,16 +76,50 @@ public class TransactionService {
         // Save all transactions
         List<Transaction> savedTransactions = transactionRepository.saveAll(transactions);
 
+        // Automatically update balances in Balance Service
+        updateBalancesForTransactions(savedTransactions);
+
         // Convert to responses with user names
         return savedTransactions.stream()
                 .map(this::convertToResponseWithUserNames)
                 .collect(Collectors.toList());
     }
 
+    // Update balances when transactions are created
+    private void updateBalancesForTransactions(List<Transaction> transactions) {
+        for (Transaction transaction : transactions) {
+            if (!transaction.getPaidBy().equals(transaction.getOwedBy())) {
+                updateSingleBalance(transaction);
+            }
+        }
+    }
+
+    // Update balance for a single transaction
+    private void updateSingleBalance(Transaction transaction) {
+        try {
+            BalanceUpdateRequest request = new BalanceUpdateRequest();
+            request.setPaidBy(transaction.getPaidBy());
+            request.setOwedBy(transaction.getOwedBy());
+            request.setAmount(transaction.getAmount());
+            request.setTransactionId(transaction.getId());
+
+            String url = BALANCE_SERVICE_URL + "/update";
+            restTemplate.postForObject(url, request, String.class);
+
+            System.out.println("✅ Balance updated for transaction: " + transaction.getId() +
+                    " (Paid by: " + transaction.getPaidBy() +
+                    ", Owed by: " + transaction.getOwedBy() +
+                    ", Amount: $" + transaction.getAmount() + ")");
+        } catch (Exception e) {
+            System.err.println("❌ Failed to update balance for transaction " +
+                    transaction.getId() + ": " + e.getMessage());
+            // In production, you might want to add this to a retry queue
+        }
+    }
+
     public TransactionResponse getTransaction(Long transactionId) {
         Transaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new RuntimeException("Transaction not found with ID: " + transactionId));
-
         return convertToResponseWithUserNames(transaction);
     }
 
@@ -114,7 +155,6 @@ public class TransactionService {
         if (!recentTransactions.isEmpty()) {
             summary.setLastTransactionDate(recentTransactions.get(0).getTransactionDate());
         }
-
         return summary;
     }
 
@@ -144,10 +184,8 @@ public class TransactionService {
         if (!canUserModifyTransaction(transaction, userId)) {
             throw new RuntimeException("You don't have permission to modify this transaction");
         }
-
         transaction.setStatus(status);
         Transaction updatedTransaction = transactionRepository.save(transaction);
-
         return convertToResponseWithUserNames(updatedTransaction);
     }
 
@@ -167,7 +205,6 @@ public class TransactionService {
     public TransactionStats getTransactionStats() {
         Long totalTransactions = transactionRepository.countActiveTransactions();
         BigDecimal totalVolume = transactionRepository.getTotalTransactionVolume();
-
         return new TransactionStats(totalTransactions, totalVolume);
     }
 
@@ -305,6 +342,32 @@ public class TransactionService {
         return userId.equals(transaction.getCreatedBy()) ||
                 userId.equals(transaction.getPaidBy()) ||
                 userId.equals(transaction.getOwedBy());
+    }
+
+    // DTO for Balance Service communication
+    public static class BalanceUpdateRequest {
+        private Long paidBy;
+        private Long owedBy;
+        private BigDecimal amount;
+        private Long transactionId;
+
+        public BalanceUpdateRequest() {}
+
+        public BalanceUpdateRequest(Long paidBy, Long owedBy, BigDecimal amount, Long transactionId) {
+            this.paidBy = paidBy;
+            this.owedBy = owedBy;
+            this.amount = amount;
+            this.transactionId = transactionId;
+        }
+
+        public Long getPaidBy() { return paidBy; }
+        public void setPaidBy(Long paidBy) { this.paidBy = paidBy; }
+        public Long getOwedBy() { return owedBy; }
+        public void setOwedBy(Long owedBy) { this.owedBy = owedBy; }
+        public BigDecimal getAmount() { return amount; }
+        public void setAmount(BigDecimal amount) { this.amount = amount; }
+        public Long getTransactionId() { return transactionId; }
+        public void setTransactionId(Long transactionId) { this.transactionId = transactionId; }
     }
 
     public static class TransactionStats {

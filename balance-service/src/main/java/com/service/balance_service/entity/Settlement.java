@@ -56,16 +56,16 @@ public class Settlement {
     private String notes;  // Additional notes about the settlement
 
     @Column(name = "reference_id")
-    private String referenceId;  // External reference (e.g., Venmo transaction ID)
+    private String referenceId;  // External reference
 
     // Enums
     public enum SettlementMethod {
         CASH,           // Cash payment
-        BANK_TRANSFER,  // Bank transfer
-        VENMO,          // Venmo payment
-        PAYPAL,         // PayPal payment
-        UPI,            // UPI payment (India)
-        OTHER           // Other payment method
+//        BANK_TRANSFER,  // Bank transfer
+//        Phonepay,          // Phonepay payment
+//        PAYPAL,         // PayPal payment
+//        UPI,            // UPI payment (India)
+//        OTHER           // Other payment method
     }
 
     public enum SettlementStatus {

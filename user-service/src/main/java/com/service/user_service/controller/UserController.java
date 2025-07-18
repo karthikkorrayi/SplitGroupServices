@@ -85,6 +85,19 @@ public class UserController {
         }
     }
 
+    // Sync User Data Endpoint (called by Auth Service)
+    @PutMapping("/sync-user/{userId}")
+    public ResponseEntity<?> syncUserData(@PathVariable Long userId,
+                                          @RequestBody UserSyncRequest request) {
+        try {
+            UserProfileResponse response = userService.syncUserData(userId, request);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
     @GetMapping("/search/email")
     public ResponseEntity<List<UserProfileResponse>> searchByEmail(@RequestParam("q") String email) {
         List<UserProfileResponse> results = userService.searchByEmail(email);
@@ -145,6 +158,19 @@ public class UserController {
     @GetMapping("/info")
     public ResponseEntity<SuccessResponse> info() {
         return ResponseEntity.ok(new SuccessResponse("User Service v1.0 - User profile management"));
+    }
+
+    // DTO for Auth Service sync
+    public static class UserSyncRequest {
+        private String email;
+        private String name;
+
+        public UserSyncRequest() {}
+
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
     }
 
     public static class ErrorResponse {

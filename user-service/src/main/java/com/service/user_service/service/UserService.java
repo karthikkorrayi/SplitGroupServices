@@ -1,5 +1,6 @@
 package com.service.user_service.service;
 
+import com.service.user_service.controller.UserController;
 import com.service.user_service.dto.UpdateProfileRequest;
 import com.service.user_service.dto.UserProfileRequest;
 import com.service.user_service.dto.UserProfileResponse;
@@ -96,6 +97,27 @@ public class UserService {
         profile.setProfileCompleted(profile.isProfileComplete());
 
         UserProfile updatedProfile = userProfileRepository.save(profile);
+        return new UserProfileResponse(updatedProfile);
+    }
+
+    // Sync user data from Auth Service
+    public UserProfileResponse syncUserData(Long userId, UserController.UserSyncRequest request) {
+        UserProfile profile = userProfileRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("Profile not found for user ID: " + userId));
+
+        // Update synchronized fields
+        if (request.getEmail() != null && !request.getEmail().trim().isEmpty()) {
+            profile.setEmail(request.getEmail().trim());
+        }
+        if (request.getName() != null && !request.getName().trim().isEmpty()) {
+            profile.setName(request.getName().trim());
+        }
+
+        profile.setUpdatedAt(LocalDateTime.now());
+
+        UserProfile updatedProfile = userProfileRepository.save(profile);
+        System.out.println("✅ User profile synced for user: " + userId);
+
         return new UserProfileResponse(updatedProfile);
     }
 
